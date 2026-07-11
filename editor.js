@@ -45,6 +45,7 @@ export function initEditor() {
   bindPointer();
   bindPages();
   bindKeyboard();
+  bindAi();
 }
 
 export async function openNotebook(nb) {
@@ -1355,6 +1356,248 @@ function bindKeyboard() {
       commit(() => curPage().objects.splice(i, 1));
       clearSelection();
     }
+  });
+}
+
+// ============================================================
+//  AI 도구 — 손글씨 인식(Google Input Tools) + Gemini(요약·퀴즈·다듬기)
+// ============================================================
+const HW_URL = "https://inputtools.google.com/request?itc=ko-t-i0-handwrit&app=ssamnote";
+const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_KEY_STORAGE = "ssamnote_gemini_key";
+let aiReplaceCtx = null; // '필기를 텍스트로 교체'용 {strokeIdxs, bbox}
+
+// 펜 획들을 Google 필기 인식으로 → 텍스트
+async function recognizeInk(strokes, w, h) {
+  const pen = strokes.filter((st) => st.t === "pen" && st.p && st.p.length);
+  if (pen.length === 0) throw new Error("인식할 펜 필기가 없어요 (형광펜·도형은 제외돼요)");
+  const ink = pen.map((st) => [st.p.map((q) => Math.round(q[0])), st.p.map((q) => Math.round(q[1]))]);
+  const res = await fetch(HW_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      options: "enable_pre_space",
+      requests: [{
+        writing_guide: { writing_area_width: Math.round(w), writing_area_height: Math.round(h) },
+        ink, language: "ko",
+      }],
+    }),
+  });
+  if (!res.ok) throw new Error("인식 서버에 연결하지 못했어요 (" + res.status + ")");
+  const j = await res.json();
+  if (j[0] !== "SUCCESS" || !j[1]?.[0]?.[1]?.length) throw new Error("필기를 인식하지 못했어요");
+  return j[1][0][1][0];
+}
+
+// 페이지에서 AI에 넘길 텍스트 수집: 손글씨 인식 결과 + 텍스트 상자
+async function getPageText() {
+  const p = curPage();
+  let hand = "";
+  try {
+    if (p.strokes.some((st) => st.t === "pen")) hand = await recognizeInk(p.strokes, p.w, p.h);
+  } catch { /* 손글씨가 없거나 인식 실패해도 텍스트 상자만으로 진행 */ }
+  const typed = p.objects.filter((o) => o.type === "text").map((o) => o.text).join("\n");
+  return [hand, typed].filter(Boolean).join("\n");
+}
+
+function aiProgress(show, text = "") {
+  $("modal-progress").classList.toggle("hidden", !show);
+  if (show) {
+    $("progress-title").textContent = "AI 작업 중…";
+    $("progress-text").textContent = text;
+    $("progress-bar").style.width = "100%";
+  }
+}
+
+function openAiModal(title, text, canReplace = false) {
+  $("ai-title").textContent = title;
+  $("ai-result").value = text;
+  $("ai-replace").classList.toggle("hidden", !canReplace);
+  $("modal-ai").classList.remove("hidden");
+}
+
+// ---------- Gemini ----------
+let keyResolver = null;
+
+function ensureGeminiKey() {
+  const saved = localStorage.getItem(GEMINI_KEY_STORAGE);
+  if (saved) return Promise.resolve(saved);
+  return openKeyModal();
+}
+
+function openKeyModal() {
+  $("key-input").value = localStorage.getItem(GEMINI_KEY_STORAGE) || "";
+  $("modal-key").classList.remove("hidden");
+  return new Promise((res) => { keyResolver = res; });
+}
+
+function closeKeyModal(value) {
+  $("modal-key").classList.add("hidden");
+  if (keyResolver) { keyResolver(value); keyResolver = null; }
+}
+
+async function askGemini(key, prompt) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    }
+  );
+  if (res.status === 400 || res.status === 403) {
+    throw new Error("API 키가 올바르지 않아요. ✨ 메뉴의 'AI 설정'에서 다시 입력해 주세요.");
+  }
+  if (!res.ok) throw new Error("AI 서버 오류 (" + res.status + ")");
+  const j = await res.json();
+  const out = j.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
+  if (!out) throw new Error("AI가 답을 만들지 못했어요. 다시 시도해 주세요.");
+  return out;
+}
+
+const AI_PROMPTS = {
+  summarize: {
+    title: "AI 요약·정리",
+    make: (t) => `다음은 교사의 수업 필기 내용입니다. 한국어로 핵심을 간결하게 요약하고, 중요한 개념을 항목별로 정리해 주세요. 손글씨 인식 과정에서 생긴 오탈자는 문맥에 맞게 바로잡아 주세요.\n\n${t}`,
+  },
+  quiz: {
+    title: "AI 퀴즈",
+    make: (t) => `다음 수업 필기 내용을 바탕으로 학생용 확인 문제 5개를 한국어로 만들어 주세요. 다양한 유형(객관식, 단답형, OX)을 섞고, 마지막에 정답과 간단한 해설을 모아서 적어 주세요.\n\n${t}`,
+  },
+  polish: {
+    title: "AI 글 다듬기",
+    make: (t) => `다음 글의 맞춤법과 띄어쓰기를 교정하고 문장을 자연스럽게 다듬어 주세요. 내용은 바꾸지 말고, 다듬은 글만 출력해 주세요.\n\n${t}`,
+  },
+};
+
+async function runAiAction(kind) {
+  try {
+    const key = await ensureGeminiKey();
+    if (!key) return; // 취소
+    aiProgress(true, "필기를 읽는 중…");
+    const text = await getPageText();
+    if (!text.trim()) {
+      aiProgress(false);
+      toast("이 페이지에 읽을 수 있는 필기·텍스트가 없어요");
+      return;
+    }
+    aiProgress(true, "AI가 생각하는 중…");
+    const cfg = AI_PROMPTS[kind];
+    const out = await askGemini(key, cfg.make(text));
+    aiProgress(false);
+    aiReplaceCtx = null;
+    openAiModal(cfg.title, out, false);
+  } catch (e) {
+    console.error(e);
+    aiProgress(false);
+    toast(e.message || String(e));
+  }
+}
+
+async function runRecognize(selectionOnly) {
+  try {
+    const p = curPage();
+    let strokes, bbox;
+    if (selectionOnly) {
+      if (!E.lasso || E.lasso.strokeIdxs.length === 0) {
+        toast("⭕ 올가미 도구로 변환할 필기를 먼저 둘러 주세요");
+        return;
+      }
+      strokes = E.lasso.strokeIdxs.map((i) => p.strokes[i]);
+      bbox = { ...E.lasso.bbox };
+      aiReplaceCtx = { strokeIdxs: [...E.lasso.strokeIdxs], bbox };
+    } else {
+      strokes = p.strokes;
+      bbox = null;
+      aiReplaceCtx = null;
+    }
+    aiProgress(true, "손글씨를 인식하는 중…");
+    const text = await recognizeInk(strokes, p.w, p.h);
+    aiProgress(false);
+    openAiModal("손글씨 → 텍스트", text, selectionOnly);
+  } catch (e) {
+    console.error(e);
+    aiProgress(false);
+    toast(e.message || String(e));
+  }
+}
+
+function bindAi() {
+  const menu = $("ai-menu");
+  $("btn-ai").addEventListener("click", (e) => {
+    e.stopPropagation();
+    $("page-menu").classList.add("hidden");
+    menu.classList.toggle("hidden");
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (!menu.classList.contains("hidden") && !menu.contains(e.target) && e.target.id !== "btn-ai") {
+      menu.classList.add("hidden");
+    }
+  });
+  const menuDo = (id, fn) => $(id).addEventListener("click", () => { menu.classList.add("hidden"); fn(); });
+  menuDo("ai-recognize-sel", () => runRecognize(true));
+  menuDo("ai-recognize-page", () => runRecognize(false));
+  menuDo("ai-summarize", () => runAiAction("summarize"));
+  menuDo("ai-quiz", () => runAiAction("quiz"));
+  menuDo("ai-polish", () => runAiAction("polish"));
+  menuDo("ai-settings", openKeyModal);
+
+  // 결과 모달
+  $("ai-close").addEventListener("click", () => $("modal-ai").classList.add("hidden"));
+  $("ai-copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText($("ai-result").value);
+      toast("복사했어요");
+    } catch {
+      toast("복사에 실패했어요 — 텍스트를 직접 선택해 주세요");
+    }
+  });
+  $("ai-add-text").addEventListener("click", () => {
+    const text = $("ai-result").value.trim();
+    if (!text) return;
+    const p = curPage();
+    const pos = aiReplaceCtx?.bbox
+      ? { x: aiReplaceCtx.bbox.x, y: aiReplaceCtx.bbox.y }
+      : { x: 60, y: 60 };
+    const o = {
+      type: "text", x: pos.x, y: pos.y,
+      w: Math.min(p.w - pos.x - 40, 600), text, fs: 18, color: "#1a1a1a",
+    };
+    commit(() => p.objects.push(o));
+    $("modal-ai").classList.add("hidden");
+    toast("텍스트 상자를 추가했어요");
+  });
+  $("ai-replace").addEventListener("click", () => {
+    const text = $("ai-result").value.trim();
+    if (!aiReplaceCtx || !text) return;
+    const { strokeIdxs, bbox } = aiReplaceCtx;
+    const p = curPage();
+    commit(() => {
+      // 선택된 펜 획만 제거하고 그 자리에 텍스트 상자
+      for (const i of [...strokeIdxs].sort((a, b) => b - a)) {
+        if (p.strokes[i]?.t === "pen") p.strokes.splice(i, 1);
+      }
+      p.objects.push({
+        type: "text", x: bbox.x + 6, y: bbox.y + 6,
+        w: Math.max(200, bbox.w), text, fs: 20, color: "#1a1a1a",
+      });
+    });
+    clearSelection();
+    $("modal-ai").classList.add("hidden");
+    toast("필기를 텍스트로 바꿨어요");
+  });
+
+  // API 키 모달
+  $("key-save").addEventListener("click", () => {
+    const v = $("key-input").value.trim();
+    if (v) localStorage.setItem(GEMINI_KEY_STORAGE, v);
+    closeKeyModal(v || null);
+  });
+  $("key-cancel").addEventListener("click", () => closeKeyModal(null));
+  $("key-clear").addEventListener("click", () => {
+    localStorage.removeItem(GEMINI_KEY_STORAGE);
+    $("key-input").value = "";
+    toast("저장된 키를 지웠어요");
   });
 }
 

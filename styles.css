@@ -298,6 +298,22 @@ html, body {
 .page-menu button:active { background: #eef2ff; }
 .page-menu button.danger { color: var(--danger); }
 
+/* ---------- AI ---------- */
+.modal-wide { width: min(560px, calc(100% - 40px)); }
+.ai-result {
+  width: 100%; min-height: 200px; max-height: 45vh;
+  border: 2px solid var(--border); border-radius: 10px;
+  padding: 12px; font-size: 15px; line-height: 1.6; font-family: inherit;
+  resize: vertical; outline: none; margin-bottom: 14px;
+}
+.ai-result:focus { border-color: var(--primary); }
+.ai-hint { color: var(--text-dim); font-size: 13.5px; line-height: 1.7; margin-bottom: 16px; }
+.ai-hint a { color: var(--primary); font-weight: 600; }
+.ai-note {
+  color: var(--text-dim); font-size: 12px; padding: 8px 14px 6px;
+  border-top: 1px solid var(--border); margin-top: 4px;
+}
+
 /* ---------- 토스트 ---------- */
 .toast {
   position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
