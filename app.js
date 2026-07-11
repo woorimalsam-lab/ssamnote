@@ -110,19 +110,28 @@ function watchNotebooks() {
   });
 }
 
+let shelfFilter = "";
+
 function renderShelf() {
   const grid = $("shelf-grid");
   grid.innerHTML = "";
-  $("shelf-empty").classList.toggle("hidden", ctx.notebooks.length > 0);
+  const list = shelfFilter
+    ? ctx.notebooks.filter((nb) => (nb.title || "").toLowerCase().includes(shelfFilter))
+    : ctx.notebooks;
+  $("shelf-empty").classList.toggle("hidden", list.length > 0);
+  $("shelf-empty").querySelector("p").innerHTML = shelfFilter
+    ? "검색 결과가 없어요."
+    : "아직 노트북이 없어요.<br/>아래 버튼으로 첫 노트북을 만들어 보세요!";
 
-  for (const nb of ctx.notebooks) {
+  for (const nb of list) {
+    // 굿노트풍 표지: 색 표지 + 제본 홈 + 흰 라벨
     const card = document.createElement("div");
     card.className = "nb-card";
     card.style.background = nb.color || "#4a6cf7";
 
-    const title = document.createElement("div");
-    title.className = "nb-title";
-    title.textContent = nb.title || "제목 없음";
+    const label = document.createElement("div");
+    label.className = "nb-label";
+    label.textContent = nb.title || "제목 없음";
 
     const meta = document.createElement("div");
     meta.className = "nb-meta";
@@ -136,7 +145,7 @@ function renderShelf() {
       notebookMenu(nb);
     });
 
-    card.append(title, meta, more);
+    card.append(label, meta, more);
     card.addEventListener("click", () => openNotebook(nb));
     grid.appendChild(card);
   }
@@ -291,6 +300,11 @@ function bindEvents() {
       b.classList.add("selected");
     });
   }
+
+  $("shelf-search").addEventListener("input", (e) => {
+    shelfFilter = e.target.value.trim().toLowerCase();
+    renderShelf();
+  });
 
   $("btn-new-pdf").addEventListener("click", () => $("input-pdf").click());
   $("input-pdf").addEventListener("change", (e) => {

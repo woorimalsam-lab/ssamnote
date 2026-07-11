@@ -30,6 +30,7 @@
   <section id="screen-shelf" class="screen hidden">
     <header class="shelf-header">
       <h1>📚 우리말쌤노트</h1>
+      <input type="search" id="shelf-search" class="shelf-search" placeholder="노트북 검색" />
       <div class="shelf-header-right">
         <span id="shelf-user" class="shelf-user"></span>
         <button id="btn-logout" class="btn btn-ghost">로그아웃</button>
@@ -119,11 +120,16 @@
         <button id="tool-pen" class="tool-btn selected" title="펜">🖊</button>
         <button id="tool-highlighter" class="tool-btn" title="형광펜">🖍</button>
         <button id="tool-eraser" class="tool-btn" title="지우개">◻</button>
+        <button id="tool-lasso" class="tool-btn" title="올가미 (둘러서 선택)">⭕</button>
         <button id="tool-shape" class="tool-btn" title="도형">△</button>
         <button id="tool-text" class="tool-btn" title="텍스트">T</button>
         <button id="tool-image" class="tool-btn" title="이미지">🖼</button>
         <button id="tool-select" class="tool-btn" title="선택/이동">☝</button>
         <button id="tool-hand" class="tool-btn" title="손(이동/확대)">✋</button>
+      </div>
+      <div class="tool-group" id="pen-options">
+        <button data-p="fountain" class="pen-style-btn selected" title="필압에 따라 굵기가 변합니다">만년필</button>
+        <button data-p="ball" class="pen-style-btn" title="균일한 굵기">볼펜</button>
       </div>
       <div class="tool-group" id="shape-options">
         <button data-s="line" class="shape-btn selected" title="직선">╱</button>
@@ -184,6 +190,7 @@
       <button id="menu-add-tpl-blank">＋ 백지 페이지</button>
       <button id="menu-add-tpl-lines">＋ 줄노트 페이지</button>
       <button id="menu-add-tpl-grid">＋ 모눈 페이지</button>
+      <button id="menu-export-pdf">📤 PDF로 내보내기</button>
       <button id="menu-clear-page">🧹 이 페이지 필기 지우기</button>
       <button id="menu-delete-page" class="danger">🗑 이 페이지 삭제</button>
     </div>

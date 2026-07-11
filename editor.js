@@ -16,9 +16,11 @@ const E = {
   pages: [],        // {id, order, template, w, h, hasBg, strokes[], objects[], bgImg, bgLoaded}
   cur: 0,
   tool: "pen",
+  penStyle: "fountain", // fountain(만년필: 필압 반영) | ball(볼펜: 균일)
   shape: "line",
   color: "#1a1a1a",
   size: 3,
+  lasso: null,      // 올가미 선택 {strokeIdxs:[], objIdxs:[], bbox:{x,y,w,h}}
   fingerDraw: false,
   view: { s: 1, tx: 0, ty: 0 },
   undoStack: [],
@@ -133,12 +135,13 @@ function applyView() {
 }
 
 // ---------- 배경(템플릿 / PDF 이미지) ----------
-function drawBackground(p) {
-  const g = bgG, w = bgC.width, h = bgC.height;
+function drawBackground(p) { drawBackgroundTo(bgG, p, RES, bgC.width, bgC.height); }
+
+function drawBackgroundTo(g, p, res, cw, ch) {
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.fillStyle = "#ffffff";
-  g.fillRect(0, 0, w, h);
-  g.setTransform(RES, 0, 0, RES, 0, 0);
+  g.fillRect(0, 0, cw, ch);
+  g.setTransform(res, 0, 0, res, 0, 0);
 
   if (p.bgImg) {
     g.drawImage(p.bgImg, 0, 0, p.w, p.h);
@@ -171,12 +174,16 @@ async function loadPageBg(p) {
     if (snap.empty) { p.bgLoaded = true; return; }
     const chunks = snap.docs.map((d) => d.data()).sort((a, b) => a.i - b.i);
     const dataUrl = chunks.map((c) => c.data).join("");
-    const img = new Image();
-    img.onload = () => {
-      p.bgImg = img; p.bgLoaded = true;
-      if (curPage() === p) drawBackground(p);
-    };
-    img.src = dataUrl;
+    await new Promise((res) => {
+      const img = new Image();
+      img.onload = () => {
+        p.bgImg = img; p.bgLoaded = true;
+        if (curPage() === p) drawBackground(p);
+        res();
+      };
+      img.onerror = () => { p.bgLoaded = true; res(); };
+      img.src = dataUrl;
+    });
   } catch (e) {
     console.error("배경 불러오기 실패", e);
     p.bgLoaded = true;
@@ -218,6 +225,7 @@ function drawStroke(g, st) {
 
   if (st.t === "pen") {
     const pts = st.p;
+    const ball = st.ps === "ball"; // 볼펜: 필압 무시하고 균일한 굵기
     if (pts.length === 1) {
       g.beginPath();
       g.arc(pts[0][0], pts[0][1], st.s * 0.6, 0, Math.PI * 2);
@@ -225,7 +233,7 @@ function drawStroke(g, st) {
     } else {
       for (let i = 1; i < pts.length; i++) {
         const pr = (pts[i][2] ?? 0.5);
-        g.lineWidth = Math.max(0.5, st.s * (0.55 + 0.9 * pr));
+        g.lineWidth = ball ? st.s : Math.max(0.5, st.s * (0.45 + 1.1 * pr));
         g.beginPath();
         g.moveTo(pts[i - 1][0], pts[i - 1][1]);
         g.lineTo(pts[i][0], pts[i][1]);
@@ -339,7 +347,7 @@ function bindPointer() {
 
     const isTouch = e.pointerType === "touch";
     // 손가락은 기본적으로 화면 이동. 단, 선택/텍스트 도구는 손가락으로도 조작 가능
-    const drawingTool = ["pen", "highlighter", "eraser", "shape"].includes(E.tool);
+    const drawingTool = ["pen", "highlighter", "eraser", "shape", "lasso"].includes(E.tool);
     const panOnly = E.tool === "hand" || (isTouch && !E.fingerDraw && drawingTool);
     const pt = screenToPage(e.clientX, e.clientY);
 
@@ -359,10 +367,19 @@ function bindPointer() {
         mode: "draw", pointerType: e.pointerType,
         stroke: {
           t: E.tool === "pen" ? "pen" : "hl",
+          ...(E.tool === "pen" ? { ps: E.penStyle } : {}),
           color: E.color, s: E.size,
           p: [[round1(pt.x), round1(pt.y), round2(e.pressure || 0.5)]],
         },
       };
+    } else if (E.tool === "lasso") {
+      if (E.lasso && ptInRect(pt, E.lasso.bbox, 8)) {
+        // 선택 영역 안을 누르면 이동 시작
+        gesture = { mode: "lassoMove", px: pt.x, py: pt.y, before: prepareLassoMove(), pointerType: e.pointerType };
+      } else {
+        clearLasso();
+        gesture = { mode: "lasso", pts: [[pt.x, pt.y]], pointerType: e.pointerType };
+      }
     } else if (E.tool === "shape") {
       gesture = { mode: "shape", x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y, pointerType: e.pointerType };
     } else if (E.tool === "text") {
@@ -402,6 +419,14 @@ function bindPointer() {
       renderLiveStroke(gesture.stroke);
     } else if (gesture.mode === "erase") {
       eraseAt(pt);
+    } else if (gesture.mode === "lasso") {
+      const last = gesture.pts[gesture.pts.length - 1];
+      if (Math.hypot(pt.x - last[0], pt.y - last[1]) > 3) gesture.pts.push([pt.x, pt.y]);
+      drawLassoPath(gesture.pts);
+    } else if (gesture.mode === "lassoMove") {
+      const dx = pt.x - gesture.px, dy = pt.y - gesture.py;
+      gesture.px = pt.x; gesture.py = pt.y;
+      moveLassoSelection(dx, dy);
     } else if (gesture.mode === "shape") {
       gesture.x1 = pt.x; gesture.y1 = pt.y;
       clearLive();
@@ -451,6 +476,12 @@ function bindPointer() {
         commit(() => curPage().strokes.push(sh));
       }
       clearLive();
+    } else if (g.mode === "lasso") {
+      clearLive();
+      finishLasso(g.pts);
+    } else if (g.mode === "lassoMove") {
+      E.undoStack.push(g.before); E.redoStack = [];
+      trimUndo(); scheduleSave();
     } else if (g.mode === "selectDrag" || g.mode === "selectResize") {
       E.undoStack.push(g.before); E.redoStack = [];
       trimUndo(); scheduleSave();
@@ -590,6 +621,119 @@ function shapeFromGesture(g = gesture) {
     t: "shape", sh: E.shape, color: E.color, s: E.size,
     x0: round1(x0), y0: round1(y0), x1: round1(x1), y1: round1(y1),
   };
+}
+
+// ============================================================
+//  올가미 (영역 선택 → 이동/삭제)
+// ============================================================
+function drawLassoPath(pts) {
+  clearLive();
+  liveG.save();
+  liveG.strokeStyle = "#2d68ff";
+  liveG.lineWidth = 1.5;
+  liveG.setLineDash([6, 5]);
+  liveG.beginPath();
+  liveG.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) liveG.lineTo(pts[i][0], pts[i][1]);
+  liveG.stroke();
+  liveG.restore();
+}
+
+function ptInPoly(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function ptInRect(pt, r, pad = 0) {
+  return pt.x >= r.x - pad && pt.x <= r.x + r.w + pad && pt.y >= r.y - pad && pt.y <= r.y + r.h + pad;
+}
+
+function strokePoints(st) {
+  if (st.t === "shape") {
+    return [[st.x0, st.y0], [st.x1, st.y1], [(st.x0 + st.x1) / 2, (st.y0 + st.y1) / 2]];
+  }
+  return st.p;
+}
+
+function finishLasso(poly) {
+  if (poly.length < 3) return;
+  const p = curPage();
+  const strokeIdxs = [], objIdxs = [];
+  p.strokes.forEach((st, i) => {
+    if (strokePoints(st).some(([x, y]) => ptInPoly(x, y, poly))) strokeIdxs.push(i);
+  });
+  p.objects.forEach((o, i) => {
+    const cx = o.x + o.w / 2, cy = o.y + (o.h || 30) / 2;
+    if (ptInPoly(cx, cy, poly)) objIdxs.push(i);
+  });
+  if (strokeIdxs.length === 0 && objIdxs.length === 0) { clearLasso(); return; }
+
+  // 선택 범위(바운딩 박스) 계산
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const i of strokeIdxs) {
+    for (const [x, y] of strokePoints(p.strokes[i])) {
+      x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+    }
+  }
+  for (const i of objIdxs) {
+    const o = p.objects[i];
+    x0 = Math.min(x0, o.x); y0 = Math.min(y0, o.y);
+    x1 = Math.max(x1, o.x + o.w); y1 = Math.max(y1, o.y + (o.h || 30));
+  }
+  E.lasso = { strokeIdxs, objIdxs, bbox: { x: x0 - 6, y: y0 - 6, w: x1 - x0 + 12, h: y1 - y0 + 12 } };
+  const box = $("selection-box");
+  box.classList.add("lasso-mode");
+  box.classList.remove("hidden");
+  positionSelectionBox();
+  toast(`${strokeIdxs.length + objIdxs.length}개 선택됨 — 끌어서 이동, 🗑로 삭제`);
+}
+
+// 이동 전에 실행 취소용 스냅샷을 만들고, 선택된 획의 점 배열을 복제해 안전하게 수정
+function prepareLassoMove() {
+  const before = snapshot();
+  const p = curPage();
+  for (const i of E.lasso.strokeIdxs) {
+    const st = p.strokes[i];
+    p.strokes[i] = st.t === "shape" ? { ...st } : { ...st, p: st.p.map((q) => [...q]) };
+  }
+  return before;
+}
+
+function moveLassoSelection(dx, dy) {
+  const p = curPage();
+  for (const i of E.lasso.strokeIdxs) {
+    const st = p.strokes[i];
+    if (st.t === "shape") { st.x0 += dx; st.y0 += dy; st.x1 += dx; st.y1 += dy; }
+    else for (const q of st.p) { q[0] += dx; q[1] += dy; }
+  }
+  for (const i of E.lasso.objIdxs) {
+    const o = p.objects[i];
+    o.x += dx; o.y += dy;
+  }
+  E.lasso.bbox.x += dx; E.lasso.bbox.y += dy;
+  redrawInk();
+  positionSelectionBox();
+}
+
+function deleteLassoSelection() {
+  const { strokeIdxs, objIdxs } = E.lasso;
+  commit(() => {
+    const p = curPage();
+    for (const i of [...strokeIdxs].sort((a, b) => b - a)) p.strokes.splice(i, 1);
+    for (const i of [...objIdxs].sort((a, b) => b - a)) p.objects.splice(i, 1);
+  });
+  clearLasso();
+}
+
+function clearLasso() {
+  E.lasso = null;
+  const box = $("selection-box");
+  box.classList.remove("lasso-mode");
+  if (E.selection == null) box.classList.add("hidden");
 }
 
 // ============================================================
@@ -765,10 +909,18 @@ function selectObject(i) {
 }
 
 function positionSelectionBox() {
+  const box = $("selection-box");
+  if (E.lasso) {
+    const b = E.lasso.bbox;
+    box.style.left = b.x + "px";
+    box.style.top = b.y + "px";
+    box.style.width = b.w + "px";
+    box.style.height = b.h + "px";
+    return;
+  }
   if (E.selection == null) return;
   const o = curPage().objects[E.selection];
   if (!o) { clearSelection(); return; }
-  const box = $("selection-box");
   box.style.left = o.x + "px";
   box.style.top = o.y + "px";
   box.style.width = o.w + "px";
@@ -777,7 +929,10 @@ function positionSelectionBox() {
 
 function clearSelection() {
   E.selection = null;
-  $("selection-box").classList.add("hidden");
+  E.lasso = null;
+  const box = $("selection-box");
+  box.classList.remove("lasso-mode");
+  box.classList.add("hidden");
 }
 
 // ============================================================
@@ -933,12 +1088,15 @@ function updatePageIndicator() {
 function renderPagePanel() {
   const list = $("page-list");
   list.innerHTML = "";
-  const tplName = { blank: "백지", lines: "줄노트", grid: "모눈", cornell: "코넬" };
   E.pages.forEach((p, i) => {
     const b = document.createElement("button");
-    const n = p.strokes.length + p.objects.length;
-    b.textContent = `${i + 1}쪽 · ${p.hasBg ? "PDF" : (tplName[p.template] || "백지")}${n ? ` · 필기 ${n}개` : ""}`;
+    b.className = "page-thumb";
     if (i === E.cur) b.classList.add("current");
+
+    const th = renderPageThumb(p, 128);
+    const cap = document.createElement("span");
+    cap.textContent = `${i + 1}쪽`;
+    b.append(th, cap);
     b.addEventListener("click", () => {
       $("page-panel").classList.add("hidden");
       showPage(i, true);
@@ -947,23 +1105,115 @@ function renderPagePanel() {
   });
 }
 
+// 페이지 미리보기(썸네일) 렌더링
+function renderPageThumb(p, w) {
+  const c = document.createElement("canvas");
+  const k = w / p.w;
+  c.width = w;
+  c.height = Math.round(p.h * k);
+  const g = c.getContext("2d");
+  drawBackgroundTo(g, p, k, c.width, c.height);
+  g.setTransform(k, 0, 0, k, 0, 0);
+  for (const st of p.strokes) drawStroke(g, st);
+  for (const o of p.objects) { if (!o._hidden) drawObject(g, o); }
+  // 아직 배경을 안 불러온 PDF 페이지 표시
+  if (p.hasBg && !p.bgImg) {
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.fillStyle = "#94a3b8";
+    g.font = "12px sans-serif";
+    g.textAlign = "center";
+    g.fillText("PDF", c.width / 2, c.height / 2);
+  }
+  return c;
+}
+
+// ============================================================
+//  PDF로 내보내기 (배경 + 필기 합성)
+// ============================================================
+const JSPDF_URL = "https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js";
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) return res();
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = res;
+    s.onerror = () => rej(new Error("스크립트를 불러올 수 없어요: " + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function exportPdf() {
+  const modal = $("modal-progress");
+  const setProg = (t, ratio) => {
+    modal.classList.remove("hidden");
+    $("progress-title").textContent = "PDF 만드는 중…";
+    $("progress-text").textContent = t;
+    $("progress-bar").style.width = Math.round(ratio * 100) + "%";
+  };
+  try {
+    flushSave();
+    setProg("준비 중…", 0);
+    await loadScript(JSPDF_URL);
+    const { jsPDF } = window.jspdf;
+    let doc = null;
+    const c = document.createElement("canvas");
+    const g = c.getContext("2d");
+    const SCALE = 2;
+
+    for (let i = 0; i < E.pages.length; i++) {
+      const p = E.pages[i];
+      setProg(`${i + 1} / ${E.pages.length} 페이지`, i / E.pages.length);
+      if (p.hasBg && !p.bgLoaded) await loadPageBg(p);
+      await hydrateImages(p);
+
+      c.width = Math.round(p.w * SCALE);
+      c.height = Math.round(p.h * SCALE);
+      drawBackgroundTo(g, p, SCALE, c.width, c.height);
+      g.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+      for (const st of p.strokes) drawStroke(g, st);
+      for (const o of p.objects) drawObject(g, o);
+
+      const img = c.toDataURL("image/jpeg", 0.85);
+      const fmt = [p.w, p.h];
+      const ori = p.w > p.h ? "l" : "p";
+      if (!doc) doc = new jsPDF({ orientation: ori, unit: "pt", format: fmt });
+      else doc.addPage(fmt, ori);
+      doc.addImage(img, "JPEG", 0, 0, p.w, p.h);
+    }
+    doc.save((E.nb.title || "노트") + ".pdf");
+    modal.classList.add("hidden");
+    toast("PDF로 저장했어요");
+  } catch (e) {
+    console.error(e);
+    modal.classList.add("hidden");
+    toast("PDF 내보내기에 실패했어요: " + (e.message || e));
+  }
+}
+
 // ============================================================
 //  도구 바 / 이벤트
 // ============================================================
 function setTool(tool) {
   commitTextEditor();
   E.tool = tool;
-  for (const t of ["pen", "highlighter", "eraser", "shape", "text", "image", "select", "hand"]) {
+  for (const t of ["pen", "highlighter", "eraser", "lasso", "shape", "text", "image", "select", "hand"]) {
     $("tool-" + t).classList.toggle("selected", t === tool);
   }
   $("shape-options").style.display = tool === "shape" ? "" : "none";
-  if (tool !== "select") clearSelection();
+  $("pen-options").style.display = tool === "pen" ? "" : "none";
+  if (tool !== "select" && tool !== "lasso") clearSelection();
 }
 
 function bindToolbar() {
-  for (const t of ["pen", "highlighter", "eraser", "shape", "text", "select", "hand"]) {
+  for (const t of ["pen", "highlighter", "eraser", "lasso", "shape", "text", "select", "hand"]) {
     $("tool-" + t).addEventListener("click", () => setTool(t));
   }
+  $("pen-options").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    E.penStyle = b.dataset.p;
+    document.querySelectorAll("#pen-options button").forEach((x) => x.classList.toggle("selected", x === b));
+  });
   $("tool-image").addEventListener("click", () => $("input-image").click());
   $("input-image").addEventListener("change", (e) => {
     const f = e.target.files[0];
@@ -1004,6 +1254,7 @@ function bindToolbar() {
 
   // 선택 상자: 삭제 / 크기 조절
   $("sel-delete").addEventListener("click", () => {
+    if (E.lasso) { deleteLassoSelection(); return; }
     if (E.selection == null) return;
     const i = E.selection;
     commit(() => curPage().objects.splice(i, 1));
@@ -1078,6 +1329,7 @@ function bindPages() {
   menuDo("menu-add-tpl-blank", () => addPage("blank"));
   menuDo("menu-add-tpl-lines", () => addPage("lines"));
   menuDo("menu-add-tpl-grid", () => addPage("grid"));
+  menuDo("menu-export-pdf", exportPdf);
   menuDo("menu-clear-page", () => {
     if (confirm("이 페이지의 필기를 모두 지울까요? (배경은 유지)")) {
       commit(() => { const p = curPage(); p.strokes = []; p.objects = []; });
