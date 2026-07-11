@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>우리말쌤노트</title>
+  <meta name="description" content="태블릿에서 쓰는 굿노트 스타일 필기장" />
+  <meta name="theme-color" content="#4a6cf7" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ===================== 로그인 화면 ===================== -->
+  <section id="screen-login" class="screen">
+    <div class="login-card">
+      <div class="login-logo">✍️</div>
+      <h1>우리말쌤노트</h1>
+      <p>태블릿에서 쓰는 나만의 필기장.<br/>Google 계정으로 로그인하면 어느 기기에서든 이어서 쓸 수 있어요.</p>
+      <button id="btn-login" class="btn btn-primary btn-lg">Google로 로그인</button>
+      <p id="login-error" class="login-error hidden"></p>
+    </div>
+  </section>
+
+  <!-- ===================== 책장(노트북 목록) ===================== -->
+  <section id="screen-shelf" class="screen hidden">
+    <header class="shelf-header">
+      <h1>📚 우리말쌤노트</h1>
+      <div class="shelf-header-right">
+        <span id="shelf-user" class="shelf-user"></span>
+        <button id="btn-logout" class="btn btn-ghost">로그아웃</button>
+      </div>
+    </header>
+    <main class="shelf-main">
+      <div id="shelf-grid" class="shelf-grid">
+        <!-- 노트북 카드가 여기 렌더링됩니다 -->
+      </div>
+      <div id="shelf-empty" class="shelf-empty hidden">
+        <p>아직 노트북이 없어요.<br/>아래 버튼으로 첫 노트북을 만들어 보세요!</p>
+      </div>
+    </main>
+    <div class="shelf-fabs">
+      <button id="btn-new-pdf" class="btn btn-secondary btn-lg">📄 PDF로 새 노트</button>
+      <button id="btn-new-notebook" class="btn btn-primary btn-lg">＋ 새 노트북</button>
+    </div>
+    <input type="file" id="input-pdf" accept="application/pdf" class="hidden" />
+  </section>
+
+  <!-- ===================== 새 노트북 모달 ===================== -->
+  <div id="modal-new" class="modal-backdrop hidden">
+    <div class="modal">
+      <h2>새 노트북</h2>
+      <label class="field">
+        <span>이름</span>
+        <input type="text" id="new-nb-title" placeholder="예: 문학 3반 판서" maxlength="40" />
+      </label>
+      <label class="field">
+        <span>속지 템플릿</span>
+        <div id="new-nb-template" class="template-picker">
+          <button data-t="blank" class="tpl selected">백지</button>
+          <button data-t="lines" class="tpl">줄노트</button>
+          <button data-t="grid" class="tpl">모눈</button>
+          <button data-t="cornell" class="tpl">코넬</button>
+        </div>
+      </label>
+      <label class="field">
+        <span>표지 색</span>
+        <div id="new-nb-color" class="color-picker-row">
+          <button data-c="#4a6cf7" class="cov selected" style="background:#4a6cf7"></button>
+          <button data-c="#e5484d" class="cov" style="background:#e5484d"></button>
+          <button data-c="#2f9e6e" class="cov" style="background:#2f9e6e"></button>
+          <button data-c="#d97706" class="cov" style="background:#d97706"></button>
+          <button data-c="#8b5cf6" class="cov" style="background:#8b5cf6"></button>
+          <button data-c="#475569" class="cov" style="background:#475569"></button>
+        </div>
+      </label>
+      <div class="modal-actions">
+        <button id="btn-new-cancel" class="btn btn-ghost">취소</button>
+        <button id="btn-new-create" class="btn btn-primary">만들기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 진행률 모달 (PDF 가져오기 등) ===================== -->
+  <div id="modal-progress" class="modal-backdrop hidden">
+    <div class="modal modal-progress">
+      <h2 id="progress-title">가져오는 중…</h2>
+      <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+      <p id="progress-text">준비 중…</p>
+    </div>
+  </div>
+
+  <!-- ===================== 편집기(필기) 화면 ===================== -->
+  <section id="screen-editor" class="screen hidden">
+    <!-- 상단 바 -->
+    <header class="editor-top">
+      <button id="btn-back" class="icon-btn" title="책장으로">←</button>
+      <span id="editor-title" class="editor-title">노트북</span>
+      <span id="save-status" class="save-status">저장됨</span>
+      <div class="editor-top-right">
+        <button id="btn-undo" class="icon-btn" title="실행 취소">↩</button>
+        <button id="btn-redo" class="icon-btn" title="다시 실행">↪</button>
+        <span class="divider-v"></span>
+        <button id="btn-page-prev" class="icon-btn" title="이전 페이지">‹</button>
+        <button id="btn-page-indicator" class="page-indicator" title="페이지 목록">1 / 1</button>
+        <button id="btn-page-next" class="icon-btn" title="다음 페이지">›</button>
+        <button id="btn-page-add" class="icon-btn" title="페이지 추가">＋</button>
+        <button id="btn-page-menu" class="icon-btn" title="페이지 메뉴">⋮</button>
+      </div>
+    </header>
+
+    <!-- 도구 바 -->
+    <div class="editor-tools">
+      <div class="tool-group">
+        <button id="tool-pen" class="tool-btn selected" title="펜">🖊</button>
+        <button id="tool-highlighter" class="tool-btn" title="형광펜">🖍</button>
+        <button id="tool-eraser" class="tool-btn" title="지우개">◻</button>
+        <button id="tool-shape" class="tool-btn" title="도형">△</button>
+        <button id="tool-text" class="tool-btn" title="텍스트">T</button>
+        <button id="tool-image" class="tool-btn" title="이미지">🖼</button>
+        <button id="tool-select" class="tool-btn" title="선택/이동">☝</button>
+        <button id="tool-hand" class="tool-btn" title="손(이동/확대)">✋</button>
+      </div>
+      <div class="tool-group" id="shape-options">
+        <button data-s="line" class="shape-btn selected" title="직선">╱</button>
+        <button data-s="arrow" class="shape-btn" title="화살표">➚</button>
+        <button data-s="rect" class="shape-btn" title="사각형">▭</button>
+        <button data-s="ellipse" class="shape-btn" title="원">◯</button>
+      </div>
+      <div class="tool-group">
+        <div id="color-row" class="color-picker-row">
+          <button data-c="#1a1a1a" class="col selected" style="background:#1a1a1a"></button>
+          <button data-c="#e5484d" class="col" style="background:#e5484d"></button>
+          <button data-c="#2563eb" class="col" style="background:#2563eb"></button>
+          <button data-c="#2f9e6e" class="col" style="background:#2f9e6e"></button>
+          <button data-c="#f59e0b" class="col" style="background:#f59e0b"></button>
+          <input type="color" id="color-custom" value="#1a1a1a" title="다른 색" />
+        </div>
+      </div>
+      <div class="tool-group size-group">
+        <input type="range" id="size-slider" min="1" max="30" value="3" />
+        <span id="size-label">3</span>
+      </div>
+      <div class="tool-group">
+        <label class="finger-toggle" title="켜면 손가락으로도 필기됩니다">
+          <input type="checkbox" id="finger-draw" /> 손가락 필기
+        </label>
+      </div>
+    </div>
+
+    <!-- 캔버스 영역 -->
+    <div id="canvas-viewport" class="canvas-viewport">
+      <div id="page-holder" class="page-holder">
+        <canvas id="canvas-bg"></canvas>
+        <canvas id="canvas-ink"></canvas>
+        <canvas id="canvas-live"></canvas>
+        <div id="selection-box" class="selection-box hidden">
+          <div class="sel-handle" data-h="br"></div>
+          <button class="sel-delete" id="sel-delete">🗑</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 텍스트 입력 오버레이 -->
+    <textarea id="text-editor-overlay" class="text-editor-overlay hidden"></textarea>
+    <input type="file" id="input-image" accept="image/*" class="hidden" />
+
+    <!-- 페이지 목록 패널 -->
+    <div id="page-panel" class="page-panel hidden">
+      <div class="page-panel-head">
+        <strong>페이지</strong>
+        <button id="page-panel-close" class="icon-btn">✕</button>
+      </div>
+      <div id="page-list" class="page-list"></div>
+    </div>
+
+    <!-- 페이지 메뉴 -->
+    <div id="page-menu" class="page-menu hidden">
+      <button id="menu-add-blank">＋ 새 페이지 (현재 템플릿)</button>
+      <button id="menu-add-tpl-blank">＋ 백지 페이지</button>
+      <button id="menu-add-tpl-lines">＋ 줄노트 페이지</button>
+      <button id="menu-add-tpl-grid">＋ 모눈 페이지</button>
+      <button id="menu-clear-page">🧹 이 페이지 필기 지우기</button>
+      <button id="menu-delete-page" class="danger">🗑 이 페이지 삭제</button>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
