@@ -387,7 +387,7 @@ function drawStroke(g, st) {
       g.stroke();
     }
   } else if (st.t === "hl") {
-    g.globalAlpha = 0.45 * g.globalAlpha; // 고스트(동기화 재생) 알파와 곱해지도록
+    g.globalAlpha = 0.35 * g.globalAlpha; // 고스트(동기화 재생) 알파와 곱해지도록
     g.lineCap = "butt";
     g.lineWidth = st.s * 3.2;
     const pts = st.p;
