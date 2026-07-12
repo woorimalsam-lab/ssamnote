@@ -212,6 +212,7 @@ function fitView() {
   E.view.s = Math.max(0.1, s);
   E.view.tx = (vw - p.w * E.view.s) / 2;
   E.view.ty = (vh - p.h * E.view.s) / 2;
+  E.fitScale = E.view.s; // 스와이프 페이지 넘김 판단 기준
 }
 
 function applyView() {
@@ -483,7 +484,10 @@ function bindPointer() {
     if (panOnly) {
       // 재생 중 ✋ 손 도구로 필기를 탭하면 그 시점으로 이동
       if (E.tool === "hand" && E.player) seekToStrokeAt(pt);
-      gesture = { mode: "pan", lastX: e.clientX, lastY: e.clientY };
+      gesture = {
+        mode: "pan", lastX: e.clientX, lastY: e.clientY,
+        startX: e.clientX, startY: e.clientY, isTouch,
+      };
       return;
     }
 
@@ -628,6 +632,18 @@ function bindPointer() {
     } else if (g.mode === "selectDrag" || g.mode === "selectResize") {
       E.undoStack.push(g.before); E.redoStack = [];
       trimUndo(); scheduleSave();
+    } else if (g.mode === "pan") {
+      // 손가락 스와이프로 페이지 넘김 (화면에 맞춰진 상태에서만 — 확대 중엔 이동으로 동작)
+      if (g.isTouch && E.pages.length > 1 && E.view.s <= (E.fitScale || 0) * 1.05) {
+        const dx = e.clientX - g.startX;
+        const dy = e.clientY - g.startY;
+        if (Math.abs(dx) > 70 && Math.abs(dx) > 1.5 * Math.abs(dy)) {
+          if (dx < 0 && E.cur < E.pages.length - 1) { showPage(E.cur + 1, true); return; }
+          if (dx > 0 && E.cur > 0) { showPage(E.cur - 1, true); return; }
+        }
+        // 넘길 페이지가 없거나 짧은 스와이프면 제자리로
+        fitView(); applyView();
+      }
     }
   };
   viewport.addEventListener("pointerup", up);
