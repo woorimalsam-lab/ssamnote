@@ -787,7 +787,11 @@ function straightenHl(st) {
   let maxD = 0;
   for (const q of pts) maxD = Math.max(maxD, segDist({ x: q[0], y: q[1] }, p0, pn));
   if (maxD < Math.max(7, chord * 0.07)) {
-    st.p = [[p0[0], p0[1], 0.5], [pn[0], pn[1], 0.5]];
+    let [x0, y0] = p0, [x1, y1] = pn;
+    // 거의 수평/수직이면 완전한 일직선으로 (확실한 대각선만 기울기 유지)
+    if (Math.abs(y1 - y0) <= chord * 0.21) { const y = (y0 + y1) / 2; y0 = y; y1 = y; }
+    else if (Math.abs(x1 - x0) <= chord * 0.21) { const x = (x0 + x1) / 2; x0 = x; x1 = x; }
+    st.p = [[round1(x0), round1(y0), 0.5], [round1(x1), round1(y1), 0.5]];
   }
 }
 
@@ -917,11 +921,12 @@ function checkHoldShape() {
 function shapeFromGesture(g = gesture) {
   let { x0, y0, x1, y1 } = g;
   const sh = g.shapeType || E.shape; // 도형 도구 또는 자동 보정으로 인식된 도형
-  // 직선: 수평/수직/45° 근처면 스냅
+  // 직선: 수평/수직/45° 근처면 스냅 (수평·수직은 더 관대하게 — 밑줄용)
   if (sh === "line" || sh === "arrow") {
     const a = Math.atan2(y1 - y0, x1 - x0);
     const snap = Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
-    if (Math.abs(a - snap) < 0.09) {
+    const isAxis = Math.round(snap / (Math.PI / 4)) % 2 === 0; // 0°/90°/180°/270°
+    if (Math.abs(a - snap) < (isAxis ? 0.21 : 0.09)) {
       const d = Math.hypot(x1 - x0, y1 - y0);
       x1 = x0 + d * Math.cos(snap);
       y1 = y0 + d * Math.sin(snap);
