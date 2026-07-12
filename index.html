@@ -38,6 +38,10 @@
       </div>
     </header>
     <main class="shelf-main">
+      <!-- 기능 안내 스트립: 칩을 누르면 사용법 안내 -->
+      <div id="feature-strip" class="feature-strip">
+        <!-- app.js가 렌더링 -->
+      </div>
       <div id="shelf-grid" class="shelf-grid">
         <!-- 노트북 카드가 여기 렌더링됩니다 -->
       </div>
@@ -83,6 +87,17 @@
       <div class="modal-actions">
         <button id="btn-new-cancel" class="btn btn-ghost">취소</button>
         <button id="btn-new-create" class="btn btn-primary">만들기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 기능 안내 모달 ===================== -->
+  <div id="modal-guide" class="modal-backdrop hidden">
+    <div class="modal">
+      <h2 id="guide-title">기능</h2>
+      <p id="guide-desc" class="guide-desc"></p>
+      <div class="modal-actions">
+        <button id="guide-close" class="btn btn-primary">확인</button>
       </div>
     </div>
   </div>

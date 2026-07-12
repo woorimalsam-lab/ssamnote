@@ -110,6 +110,34 @@ function watchNotebooks() {
   });
 }
 
+// ---------- 기능 안내 스트립 (메인 화면) ----------
+const FEATURES = [
+  { icon: "🖊", name: "필압 펜", desc: "펜 도구를 고르면 옆에 '만년필 / 볼펜' 버튼이 나타나요.\n\n• 만년필: 펜슬을 누르는 세기에 따라 굵기가 살아나는 손글씨 느낌\n• 볼펜: 항상 일정한 굵기\n\n색상과 굵기 슬라이더는 바로 옆에 있고, 마지막 설정은 자동으로 기억돼요." },
+  { icon: "🧽", name: "긁적 지우기", desc: "지우개로 바꿀 필요 없이, 펜으로 틀린 부분 위를 쓱쓱 지그재그로 문지르면 그 아래 필기가 지워져요.\n\n빈 곳에 그린 지그재그는 평범한 필기로 남아요. 실수로 지워졌다면 ↩ 되돌리기를 누르세요.\n\n도구바 오른쪽 '긁적 지우기' 체크로 끄고 켤 수 있어요." },
+  { icon: "⭕", name: "올가미 선택", desc: "올가미 도구로 필기 주변을 빙 둘러 그리면 선택돼요.\n\n• 선택 영역을 끌면 통째로 이동\n• 🗑 버튼으로 한꺼번에 삭제\n• ✨ AI 메뉴에서 '선택한 필기를 텍스트로'를 누르면 그 부분만 텍스트로 변환\n\n판서 위치를 옮기거나 정리할 때 편해요." },
+  { icon: "📄", name: "PDF 필기·검색", desc: "책장의 'PDF로 새 노트'로 교재·학습지 PDF를 열어 그 위에 바로 필기할 수 있어요.\n\n• 필기 화면 페이지 메뉴(⋮) → 'PDF 가져와 삽입': 지금 노트 중간에 끼워 넣기\n• 페이지 목록(1/30 버튼)의 검색창: PDF 내용으로 페이지 찾기\n• 페이지 메뉴 → 'PDF로 내보내기': 필기 포함 PDF로 저장·인쇄" },
+  { icon: "🎙", name: "녹음 + 필기 재생", desc: "필기 화면 상단 🎙를 누르고 수업하며 필기하세요.\n\n🎧 목록에서 재생하면 필기가 처음엔 흐리게 보이다가 소리에 맞춰 나타나요. ✋ 손 도구로 필기를 탭하면 그 부분을 쓴 시점으로 오디오가 점프!\n\n배속(1×/1.5×/2×) 재생과 📝 AI 받아쓰기도 돼요." },
+  { icon: "✍️", name: "손글씨 → 텍스트", desc: "필기 화면 상단 ✨ 메뉴에서:\n\n• '선택한 필기를 텍스트로': 올가미로 둘러 선택한 손글씨를 인식\n• '페이지 필기를 텍스트로': 페이지 전체 인식\n\n결과를 복사하거나, 텍스트 상자로 추가하거나, 손글씨와 교체할 수 있어요. 설정 없이 무료로 쓸 수 있어요." },
+  { icon: "✨", name: "AI 요약·퀴즈", desc: "필기 화면 상단 ✨ 메뉴에서 페이지 내용을 AI가 도와줘요.\n\n• AI 요약·정리: 핵심 개념 정리\n• AI 퀴즈 만들기: 학생용 확인 문제 5개(정답·해설 포함)\n• AI 글 다듬기: 맞춤법·문장 교정\n\n처음 한 번만 무료 Gemini API 키를 넣으면 돼요 (안내 창이 알려줘요)." },
+  { icon: "📑", name: "페이지 썸네일", desc: "필기 화면 상단의 '1 / 5' 페이지 표시를 누르면 모든 페이지의 미리보기가 격자로 떠요.\n\n원하는 페이지를 누르면 바로 이동! ＋ 버튼으로 페이지를 추가하고, ⋮ 메뉴에서 백지·줄노트·모눈 템플릿을 골라 넣을 수 있어요." },
+];
+
+function renderFeatureStrip() {
+  const strip = $("feature-strip");
+  strip.innerHTML = "";
+  for (const f of FEATURES) {
+    const chip = document.createElement("button");
+    chip.className = "feature-chip";
+    chip.innerHTML = `<span class="fc-icon">${f.icon}</span><span>${f.name}</span>`;
+    chip.addEventListener("click", () => {
+      $("guide-title").textContent = `${f.icon} ${f.name}`;
+      $("guide-desc").textContent = f.desc;
+      $("modal-guide").classList.remove("hidden");
+    });
+    strip.appendChild(chip);
+  }
+}
+
 let shelfFilter = "";
 
 function renderShelf() {
@@ -350,6 +378,13 @@ function bindEvents() {
       b.classList.add("selected");
     });
   }
+
+  // 기능 안내
+  renderFeatureStrip();
+  $("guide-close").addEventListener("click", () => $("modal-guide").classList.add("hidden"));
+  $("modal-guide").addEventListener("click", (e) => {
+    if (e.target.id === "modal-guide") $("modal-guide").classList.add("hidden");
+  });
 
   // 노트북 메뉴 / 이름 바꾸기
   $("nbmenu-cancel").addEventListener("click", () => $("modal-nbmenu").classList.add("hidden"));
