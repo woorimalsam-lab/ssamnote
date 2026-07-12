@@ -172,7 +172,7 @@
         <button id="tool-lasso" class="tool-btn" title="올가미 (둘러서 선택)">⭕</button>
         <button id="tool-pen" class="tool-btn selected" title="펜">🖊</button>
         <button id="tool-highlighter" class="tool-btn" title="형광펜">🖍</button>
-        <button id="tool-eraser" class="tool-btn" title="지우개">◻</button>
+        <button id="tool-eraser" class="tool-btn" title="지우개"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H8.5L3.6 15.1a2 2 0 0 1 0-2.8l8.5-8.5a2 2 0 0 1 2.8 0l5.5 5.5a2 2 0 0 1 0 2.8L14 18.5"/><path d="M7.5 9.5l7 7"/></svg></button>
         <button id="tool-shape" class="tool-btn" title="도형">△</button>
         <button id="tool-text" class="tool-btn" title="텍스트">T</button>
         <button id="tool-image" class="tool-btn" title="이미지">🖼</button>
@@ -209,6 +209,12 @@
             <label class="finger-toggle" title="거의 곧게 그으면 자동으로 반듯한 직선이 됩니다">
               <input type="checkbox" id="hl-straight" checked /> 직선
             </label>
+          </span>
+          <span id="eraser-options">
+            <label class="finger-toggle" title="켜면 글씨는 남기고 형광펜만 지워져요">
+              <input type="checkbox" id="erase-hl-only" /> 형광펜만
+            </label>
+            <button id="erase-all" class="pen-style-btn" title="이 페이지의 필기 획을 모두 지웁니다">획 전체 지우기</button>
           </span>
           <span id="shape-options">
             <button data-s="line" class="shape-btn selected" title="직선">╱</button>

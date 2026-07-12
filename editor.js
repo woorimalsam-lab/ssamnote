@@ -25,6 +25,7 @@ const E = {
   lasso: null,      // 올가미 선택 {strokeIdxs:[], objIdxs:[], bbox:{x,y,w,h}}
   fingerDraw: false,
   scribble: true,   // 긁적여서 지우기 (Scribble to Erase)
+  eraseHlOnly: false, // 지우개: 형광펜만 지우기
   pageFilter: "",   // 페이지 패널 검색어
   view: { s: 1, tx: 0, ty: 0 },
   undoStack: [],
@@ -73,7 +74,7 @@ function savePrefs() {
     localStorage.setItem(PREFS_KEY, JSON.stringify({
       color: E.color, size: E.size, penStyle: E.penStyle,
       hlColor: E.hlColor, hlStraight: E.hlStraight,
-      fingerDraw: E.fingerDraw, scribble: E.scribble,
+      fingerDraw: E.fingerDraw, scribble: E.scribble, eraseHlOnly: E.eraseHlOnly,
     }));
   } catch {}
 }
@@ -104,6 +105,10 @@ function loadPrefs() {
   if (typeof p.hlStraight === "boolean") {
     E.hlStraight = p.hlStraight;
     $("hl-straight").checked = p.hlStraight;
+  }
+  if (typeof p.eraseHlOnly === "boolean") {
+    E.eraseHlOnly = p.eraseHlOnly;
+    $("erase-hl-only").checked = p.eraseHlOnly;
   }
   if (typeof p.hlColor === "string") {
     // 예전 파스텔 색은 새 형광색으로 이전
@@ -731,6 +736,7 @@ function eraseAt(pt) {
   const r = Math.max(6, E.size * 2.5);
   let hit = false;
   for (let i = p.strokes.length - 1; i >= 0; i--) {
+    if (E.eraseHlOnly && p.strokes[i].t !== "hl") continue; // 형광펜만 지우기 모드
     if (strokeHit(p.strokes[i], pt, r)) {
       gesture.removed.push(p.strokes[i]);
       p.strokes.splice(i, 1);
@@ -1578,7 +1584,8 @@ function setTool(tool) {
   $("shape-options").style.display = tool === "shape" ? "" : "none";
   $("pen-options").style.display = tool === "pen" ? "" : "none";
   $("hl-options").style.display = tool === "highlighter" ? "" : "none";
-  $("color-row").style.display = tool === "highlighter" ? "none" : ""; // 형광펜은 전용 색만
+  $("eraser-options").style.display = tool === "eraser" ? "" : "none";
+  $("color-row").style.display = (tool === "highlighter" || tool === "eraser") ? "none" : ""; // 형광펜·지우개는 색 불필요
   if (tool !== "select" && tool !== "lasso") clearSelection();
 }
 
@@ -1601,6 +1608,16 @@ function bindToolbar() {
     savePrefs();
   });
   $("hl-straight").addEventListener("change", (e) => { E.hlStraight = e.target.checked; savePrefs(); });
+  // 지우개 옵션
+  $("eraser-options").style.display = "none";
+  $("erase-hl-only").addEventListener("change", (e) => { E.eraseHlOnly = e.target.checked; savePrefs(); });
+  $("erase-all").addEventListener("click", () => {
+    const p = curPage();
+    if (p.strokes.length === 0) { toast("지울 필기가 없어요"); return; }
+    if (!confirm("이 페이지의 필기 획을 모두 지울까요?\n(텍스트 상자·이미지·배경은 유지, 되돌리기 가능)")) return;
+    commit(() => { curPage().strokes = []; });
+    toast("모두 지웠어요 — ↩로 되돌릴 수 있어요");
+  });
   $("tool-image").addEventListener("click", () => $("input-image").click());
   $("input-image").addEventListener("change", (e) => {
     const f = e.target.files[0];
