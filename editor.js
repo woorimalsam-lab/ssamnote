@@ -19,7 +19,7 @@ const E = {
   penStyle: "fountain", // fountain(만년필: 필압 반영) | ball(볼펜: 균일)
   shape: "line",
   color: "#1a1a1a",
-  hlColor: "#ffe066",   // 형광펜 전용 색 (파스텔)
+  hlColor: "#ffe600",   // 형광펜 전용 색 (선명한 형광)
   hlStraight: true,     // 형광펜 자동 직선 보정
   size: 3,
   lasso: null,      // 올가미 선택 {strokeIdxs:[], objIdxs:[], bbox:{x,y,w,h}}
@@ -106,9 +106,14 @@ function loadPrefs() {
     $("hl-straight").checked = p.hlStraight;
   }
   if (typeof p.hlColor === "string") {
-    E.hlColor = p.hlColor;
+    // 예전 파스텔 색은 새 형광색으로 이전
+    const migrate = {
+      "#ffe066": "#ffe600", "#8ce99a": "#2ce65f", "#faa2c1": "#ff4d9e",
+      "#74c0fc": "#29b6ff", "#ffc078": "#ff9100",
+    };
+    E.hlColor = migrate[p.hlColor] || p.hlColor;
     document.querySelectorAll("#hl-options .hl-col").forEach((x) =>
-      x.classList.toggle("selected", x.dataset.h === p.hlColor));
+      x.classList.toggle("selected", x.dataset.h === E.hlColor));
   }
   if (typeof p.color === "string") {
     E.color = p.color;
@@ -382,7 +387,7 @@ function drawStroke(g, st) {
       g.stroke();
     }
   } else if (st.t === "hl") {
-    g.globalAlpha = 0.35 * g.globalAlpha; // 고스트(동기화 재생) 알파와 곱해지도록
+    g.globalAlpha = 0.45 * g.globalAlpha; // 고스트(동기화 재생) 알파와 곱해지도록
     g.lineCap = "butt";
     g.lineWidth = st.s * 3.2;
     const pts = st.p;
