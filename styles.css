@@ -271,6 +271,18 @@ button, label { touch-action: manipulation; }
 .nb-card .nb-more:hover { background: rgba(255, 255, 255, .4); }
 .shelf-empty { text-align: center; color: var(--text-dim); margin-top: 90px; line-height: 1.9; font-size: 16px; }
 
+/* 노트북 드래그 정렬 */
+.nb-card { touch-action: pan-y; } /* 세로 스크롤은 유지, 드래그는 길게 눌러 시작 */
+.nb-card.drag-src { opacity: .25; }
+.drag-ghost {
+  position: fixed; z-index: 90; margin: 0;
+  pointer-events: none;
+  transform: scale(1.06) rotate(1.5deg);
+  box-shadow: var(--shadow-lg);
+  opacity: .95;
+  transition: none;
+}
+
 .shelf-fabs {
   position: fixed; right: 28px; display: flex; gap: 12px; z-index: 5;
   bottom: calc(28px + env(safe-area-inset-bottom));

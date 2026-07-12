@@ -127,7 +127,7 @@ const FEATURES = [
   { icon: "📑", name: "페이지 이동", desc: "• 손가락으로 화면을 옆으로 쓸어 넘기면(스와이프) 페이지가 넘어가요 (확대 중일 땐 화면 이동으로 동작)\n• '1 / 5' 페이지 표시를 누르면 모든 페이지의 미리보기가 격자로 떠서 바로 이동할 수 있어요\n• ＋ 버튼으로 페이지 추가, ⋮ 메뉴에서 백지·줄노트·모눈 템플릿 선택\n• 노트북을 다시 열면 마지막으로 보던 페이지에서 이어져요" },
   { icon: "📐", name: "도형 자동 보정", desc: "펜으로 선이나 도형을 그린 뒤, 펜을 떼지 말고 잠깐(0.6초) 멈춰 보세요.\n\n• 밑줄·직선 → 곧은 직선으로\n• 동그라미 → 매끈한 원으로\n• 네모 → 반듯한 사각형으로 바뀌어요\n\n바뀐 상태에서 계속 끌면 크기를 조절할 수 있어요. 그냥 그리고 바로 떼면 손글씨 그대로 남아요." },
   { icon: "🧑‍🏫", name: "화이트보드·빠른 메모", desc: "• 화이트보드: 새 노트북 템플릿에서 '화이트보드'를 고르면 점 패턴의 넓은 가로 캔버스가 생겨요 — 마인드맵, 수업 구상, 브레인스토밍에 좋아요\n\n• ⚡ 빠른 메모: 책장 오른쪽 아래 버튼을 누르면 이름 입력 없이 즉시 메모장이 열려요 (날짜·시간이 자동 제목)" },
-  { icon: "📁", name: "폴더 정리", desc: "책장에서 노트북을 폴더로 정리할 수 있어요.\n\n• 노트북 목록 위 '＋ 새 폴더'로 폴더 만들기\n• 노트북의 ⋮ → '폴더로 이동'\n• 폴더 탭을 누르면 그 폴더만 보기\n• 선택된 폴더 탭을 한 번 더 누르면 이름 바꾸기·삭제\n\n폴더를 보면서 새 노트북을 만들면 자동으로 그 폴더에 들어가요." },
+  { icon: "📁", name: "폴더·순서 정리", desc: "책장에서 노트북을 폴더로 정리하고 순서도 바꿀 수 있어요.\n\n• 노트북을 길게(0.4초) 누르면 들려요 → 끌어서 원하는 위치에 놓기\n• 노트북 목록 위 '＋ 새 폴더'로 폴더 만들기\n• 노트북의 ⋮ → '폴더로 이동'\n• 선택된 폴더 탭을 한 번 더 누르면 이름 바꾸기·삭제\n\n폴더를 보면서 새 노트북을 만들면 자동으로 그 폴더에 들어가요." },
 ];
 
 function renderFeatureStrip() {
@@ -154,6 +154,12 @@ function renderShelf() {
   let list = ctx.notebooks;
   if (currentFolder) list = list.filter((nb) => nb.folder === currentFolder.id);
   if (shelfFilter) list = list.filter((nb) => (nb.title || "").toLowerCase().includes(shelfFilter));
+  // 직접 정한 순서(pos)가 있으면 우선, 없으면 최근 수정 순
+  list = [...list].sort((a, b) => {
+    const pa = a.pos ?? Infinity, pb = b.pos ?? Infinity;
+    if (pa !== pb) return pa - pb;
+    return (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
+  });
   $("shelf-empty").classList.toggle("hidden", list.length > 0);
   $("shelf-empty").querySelector("p").innerHTML = shelfFilter
     ? "검색 결과가 없어요."
@@ -193,8 +199,107 @@ function renderShelf() {
     });
 
     card.append(label, meta, more);
-    card.addEventListener("click", () => openNotebook(nb));
+    card.dataset.id = nb.id;
+    card.addEventListener("click", () => {
+      if (suppressOpen) return; // 드래그 직후의 클릭은 무시
+      openNotebook(nb);
+    });
+    card.addEventListener("pointerdown", (e) => startCardHold(e, nb, card));
     grid.appendChild(card);
+  }
+}
+
+// ---------- 노트북 드래그 정렬 (길게 눌러 이동) ----------
+let cardDrag = null;
+let suppressOpen = false;
+
+function startCardHold(e, nb, card) {
+  if (e.button !== undefined && e.button !== 0) return;
+  const sx = e.clientX, sy = e.clientY;
+  const cleanup = () => {
+    clearTimeout(holdTimer);
+    card.removeEventListener("pointermove", onMove);
+    card.removeEventListener("pointerup", cleanup);
+    card.removeEventListener("pointercancel", cleanup);
+  };
+  const onMove = (ev) => {
+    if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) cleanup(); // 스크롤/탭으로 판단
+  };
+  const holdTimer = setTimeout(() => { cleanup(); beginCardDrag(nb, card, sx, sy); }, 350);
+  card.addEventListener("pointermove", onMove);
+  card.addEventListener("pointerup", cleanup);
+  card.addEventListener("pointercancel", cleanup);
+}
+
+function beginCardDrag(nb, card, x, y) {
+  if (navigator.vibrate) navigator.vibrate(15);
+  const rect = card.getBoundingClientRect();
+  const ghost = card.cloneNode(true);
+  ghost.classList.add("drag-ghost");
+  ghost.style.setProperty("--c", card.style.getPropertyValue("--c"));
+  ghost.style.width = rect.width + "px";
+  ghost.style.height = rect.height + "px";
+  ghost.style.left = rect.left + "px";
+  ghost.style.top = rect.top + "px";
+  document.body.appendChild(ghost);
+  card.classList.add("drag-src");
+  cardDrag = { nb, card, ghost, offX: x - rect.left, offY: y - rect.top };
+  document.addEventListener("pointermove", onCardDragMove);
+  document.addEventListener("pointerup", endCardDrag, { once: true });
+  document.addEventListener("pointercancel", endCardDrag, { once: true });
+}
+
+function onCardDragMove(e) {
+  if (!cardDrag) return;
+  const d = cardDrag;
+  d.ghost.style.left = (e.clientX - d.offX) + "px";
+  d.ghost.style.top = (e.clientY - d.offY) + "px";
+
+  // 포인터 아래의 다른 카드 위치로 자리 이동
+  d.ghost.style.display = "none";
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  d.ghost.style.display = "";
+  const over = el && el.closest ? el.closest(".nb-card") : null;
+  if (over && over !== d.card && over.parentElement === d.card.parentElement) {
+    const grid = d.card.parentElement;
+    const cards = [...grid.children];
+    if (cards.indexOf(d.card) < cards.indexOf(over)) grid.insertBefore(d.card, over.nextSibling);
+    else grid.insertBefore(d.card, over);
+  }
+  // 가장자리 자동 스크롤
+  const main = document.querySelector(".shelf-main");
+  const mr = main.getBoundingClientRect();
+  if (e.clientY < mr.top + 70) main.scrollTop -= 14;
+  else if (e.clientY > mr.bottom - 70) main.scrollTop += 14;
+}
+
+async function endCardDrag() {
+  document.removeEventListener("pointermove", onCardDragMove);
+  const d = cardDrag;
+  cardDrag = null;
+  if (!d) return;
+  d.ghost.remove();
+  d.card.classList.remove("drag-src");
+  suppressOpen = true;
+  setTimeout(() => { suppressOpen = false; }, 350);
+
+  // 화면의 카드 순서를 pos로 저장 (바뀐 것만)
+  const ids = [...$("shelf-grid").querySelectorAll(".nb-card")].map((c) => c.dataset.id);
+  const { fs, db } = ctx.fb;
+  const jobs = [];
+  ids.forEach((id, i) => {
+    const nb = ctx.notebooks.find((n) => n.id === id);
+    if (nb && nb.pos !== i) {
+      nb.pos = i;
+      jobs.push(fs.updateDoc(fs.doc(db, "users", ctx.user.uid, "notebooks", id), { pos: i }));
+    }
+  });
+  try {
+    await Promise.all(jobs);
+    if (jobs.length) toast("순서를 저장했어요");
+  } catch (e) {
+    console.error(e);
+    toast("순서 저장에 실패했어요: " + (e.message || e));
   }
 }
 
@@ -623,6 +728,9 @@ async function main() {
   for (const ev of ["gesturestart", "gesturechange", "gestureend"]) {
     document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
   }
+  // 노트북 드래그 중에는 손가락 스크롤 방지
+  document.addEventListener("touchmove", (e) => { if (cardDrag) e.preventDefault(); }, { passive: false });
+  $("shelf-grid").addEventListener("contextmenu", (e) => e.preventDefault());
 
   // 개발용 데모 모드: #demo 로 열면 로그인 없이 임시 노트북(저장 안 됨)
   if (location.hash === "#demo") {
@@ -640,6 +748,7 @@ async function main() {
       },
     };
     showScreen("shelf");
+    window.__app = { ctx, renderShelf, get cardDrag() { return cardDrag; } }; // 데모 자동 테스트용
     openNotebook({ id: "demo-nb", title: "데모 노트북", color: "#4a6cf7", template: "lines", pageCount: 1 });
     return;
   }
