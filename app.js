@@ -248,53 +248,79 @@ function progress(show, title = "", text = "", ratio = 0) {
   }
 }
 
+// PDF를 페이지 단위로 렌더링(배경 이미지 + 텍스트 추출) — 새 노트/삽입 공용
+export async function renderPdfPages(file, onPage) {
+  const pdfjs = await import(PDF_JS);
+  pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER;
+  const data = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data }).promise;
+  const n = pdf.numPages;
+  const canvas = document.createElement("canvas");
+  const cx = canvas.getContext("2d");
+
+  for (let i = 1; i <= n; i++) {
+    const page = await pdf.getPage(i);
+    const vp1 = page.getViewport({ scale: 1 });
+    const scale = 1536 / vp1.width;
+    const vp = page.getViewport({ scale });
+    canvas.width = Math.round(vp.width);
+    canvas.height = Math.round(vp.height);
+    cx.fillStyle = "#fff";
+    cx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: cx, viewport: vp }).promise;
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+
+    // 페이지 텍스트 추출 (노트 내 검색용)
+    let text = "";
+    try {
+      const tc = await page.getTextContent();
+      text = tc.items.map((t) => t.str).join(" ").replace(/\s+/g, " ").trim().slice(0, 4000);
+    } catch { /* 텍스트 없는 스캔 PDF 등 */ }
+
+    await onPage({
+      i, n, dataUrl, text,
+      w: 1000, h: Math.round(1000 * vp1.height / vp1.width),
+    });
+    page.cleanup();
+  }
+  return n;
+}
+
+// 페이지 문서 + 배경 조각 저장
+export async function writePdfPage(nbId, order, pg) {
+  const { fs } = ctx.fb;
+  const pRef = fs.doc(pageCol());
+  await fs.setDoc(pRef, {
+    nb: nbId, order, template: "blank", w: pg.w, h: pg.h,
+    hasBg: true, text: pg.text || "", strokes: "[]", objects: "[]",
+    updatedAt: fs.serverTimestamp(),
+  });
+  for (let c = 0; c * CHUNK < pg.dataUrl.length; c++) {
+    await fs.setDoc(fs.doc(fs.collection(pRef, "bg"), String(c)), {
+      i: c, total: Math.ceil(pg.dataUrl.length / CHUNK),
+      data: pg.dataUrl.slice(c * CHUNK, (c + 1) * CHUNK),
+    });
+  }
+  return pRef.id;
+}
+
 async function importPdf(file) {
   try {
     progress(true, "PDF 여는 중…", file.name, 0);
-    const pdfjs = await import(PDF_JS);
-    pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER;
-    const data = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data }).promise;
-    const n = pdf.numPages;
-
     const { fs } = ctx.fb;
     const title = file.name.replace(/\.pdf$/i, "");
-    const nbRef = fs.doc(nbCol());
-    await fs.setDoc(nbRef, {
-      title, color: "#475569", template: "blank", pageCount: n,
-      createdAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp(),
-    });
-
-    const canvas = document.createElement("canvas");
-    const cx = canvas.getContext("2d");
-
-    for (let i = 1; i <= n; i++) {
-      progress(true, "PDF 가져오는 중…", `${i} / ${n} 페이지`, (i - 1) / n);
-      const page = await pdf.getPage(i);
-      const vp1 = page.getViewport({ scale: 1 });
-      const scale = 1536 / vp1.width;
-      const vp = page.getViewport({ scale });
-      canvas.width = Math.round(vp.width);
-      canvas.height = Math.round(vp.height);
-      cx.fillStyle = "#fff";
-      cx.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvasContext: cx, viewport: vp }).promise;
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
-
-      const pRef = fs.doc(pageCol());
-      await fs.setDoc(pRef, {
-        nb: nbRef.id, order: i - 1, template: "blank",
-        w: 1000, h: Math.round(1000 * vp1.height / vp1.width),
-        hasBg: true, strokes: "[]", objects: "[]", updatedAt: fs.serverTimestamp(),
-      });
-      for (let c = 0; c * CHUNK < dataUrl.length; c++) {
-        await fs.setDoc(fs.doc(fs.collection(pRef, "bg"), String(c)), {
-          i: c, total: Math.ceil(dataUrl.length / CHUNK),
-          data: dataUrl.slice(c * CHUNK, (c + 1) * CHUNK),
+    let nbRef = null;
+    const n = await renderPdfPages(file, async (pg) => {
+      if (!nbRef) {
+        nbRef = fs.doc(nbCol());
+        await fs.setDoc(nbRef, {
+          title, color: "#475569", template: "blank", pageCount: pg.n,
+          createdAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp(),
         });
       }
-      page.cleanup();
-    }
+      progress(true, "PDF 가져오는 중…", `${pg.i} / ${pg.n} 페이지`, (pg.i - 1) / pg.n);
+      await writePdfPage(nbRef.id, pg.i - 1, pg);
+    });
     progress(false);
     toast(`"${title}" 가져오기 완료 (${n}쪽)`);
   } catch (e) {

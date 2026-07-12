@@ -5,7 +5,7 @@
 //  - 페이지 데이터는 Firestore users/{uid}/pages 에 자동 저장
 // ============================================================
 
-import { ctx, toast, showScreen, pageCol, openRenameNotebook } from "./app.js";
+import { ctx, toast, showScreen, pageCol, openRenameNotebook, renderPdfPages, writePdfPage } from "./app.js";
 
 const $ = (id) => document.getElementById(id);
 const RES = 2; // 캔버스 해상도 배율 (태블릿 메모리 고려)
@@ -22,6 +22,8 @@ const E = {
   size: 3,
   lasso: null,      // 올가미 선택 {strokeIdxs:[], objIdxs:[], bbox:{x,y,w,h}}
   fingerDraw: false,
+  scribble: true,   // 긁적여서 지우기 (Scribble to Erase)
+  pageFilter: "",   // 페이지 패널 검색어
   view: { s: 1, tx: 0, ty: 0 },
   undoStack: [],
   redoStack: [],
@@ -40,13 +42,63 @@ export function initEditor() {
   viewport = $("canvas-viewport");
   holder = $("page-holder");
   bgC = $("canvas-bg"); inkC = $("canvas-ink"); liveC = $("canvas-live");
-  bgG = bgC.getContext("2d"); inkG = inkC.getContext("2d"); liveG = liveC.getContext("2d");
+  bgG = bgC.getContext("2d"); inkG = inkC.getContext("2d");
+  // 라이브(그리는 중) 레이어는 저지연 모드 — 펜 지연 최소화 (지원 브라우저에서)
+  liveG = liveC.getContext("2d", { desynchronized: true });
   bindToolbar();
   bindPointer();
   bindPages();
   bindKeyboard();
   bindAi();
   bindAudio();
+  loadPrefs();
+}
+
+// ---------- 도구 설정 기억 ----------
+const PREFS_KEY = "ssamnote_prefs";
+
+function savePrefs() {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({
+      color: E.color, size: E.size, penStyle: E.penStyle,
+      fingerDraw: E.fingerDraw, scribble: E.scribble,
+    }));
+  } catch {}
+}
+
+function loadPrefs() {
+  let p;
+  try { p = JSON.parse(localStorage.getItem(PREFS_KEY)); } catch {}
+  if (!p) return;
+  if (typeof p.size === "number") {
+    E.size = p.size;
+    $("size-slider").value = p.size;
+    $("size-label").textContent = p.size;
+  }
+  if (p.penStyle === "ball" || p.penStyle === "fountain") {
+    E.penStyle = p.penStyle;
+    document.querySelectorAll("#pen-options button").forEach((x) =>
+      x.classList.toggle("selected", x.dataset.p === p.penStyle));
+  }
+  if (typeof p.fingerDraw === "boolean") {
+    E.fingerDraw = p.fingerDraw;
+    $("finger-draw").checked = p.fingerDraw;
+  }
+  if (typeof p.scribble === "boolean") {
+    E.scribble = p.scribble;
+    $("scribble-erase").checked = p.scribble;
+  }
+  if (typeof p.color === "string") {
+    E.color = p.color;
+    let matched = false;
+    document.querySelectorAll("#color-row .col").forEach((x) => {
+      const sel = x.dataset.c === p.color;
+      x.classList.toggle("selected", sel);
+      if (sel) matched = true;
+    });
+    if (p.color.startsWith("#")) $("color-custom").value = p.color;
+    if (!matched) document.querySelectorAll("#color-row .col").forEach((x) => x.classList.remove("selected"));
+  }
 }
 
 // 녹음 중이면 획에 시간·녹음 ID를 기록 (동기화 재생용)
@@ -73,7 +125,7 @@ export async function openNotebook(nb) {
         const p = d.data();
         return {
           id: d.id, order: p.order ?? 0, template: p.template || "blank",
-          w: p.w || 1000, h: p.h || 1414, hasBg: !!p.hasBg,
+          w: p.w || 1000, h: p.h || 1414, hasBg: !!p.hasBg, text: p.text || "",
           strokes: safeParse(p.strokes), objects: safeParse(p.objects),
           bgImg: null, bgLoaded: false,
         };
@@ -253,15 +305,40 @@ function drawStroke(g, st) {
       g.beginPath();
       g.arc(pts[0][0], pts[0][1], st.s * 0.6, 0, Math.PI * 2);
       g.fill();
-    } else {
-      for (let i = 1; i < pts.length; i++) {
-        const pr = (pts[i][2] ?? 0.5);
-        g.lineWidth = ball ? st.s : Math.max(0.5, st.s * (0.45 + 1.1 * pr));
-        g.beginPath();
-        g.moveTo(pts[i - 1][0], pts[i - 1][1]);
-        g.lineTo(pts[i][0], pts[i][1]);
-        g.stroke();
+    } else if (pts.length === 2) {
+      g.lineWidth = ball ? st.s : Math.max(0.5, st.s * (0.45 + 1.1 * (pts[1][2] ?? 0.5)));
+      g.beginPath();
+      g.moveTo(pts[0][0], pts[0][1]);
+      g.lineTo(pts[1][0], pts[1][1]);
+      g.stroke();
+    } else if (ball) {
+      // 볼펜: 중간점 이차곡선으로 하나의 부드러운 패스
+      g.lineWidth = st.s;
+      g.beginPath();
+      g.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length - 1; i++) {
+        g.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
       }
+      g.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
+      g.stroke();
+    } else {
+      // 만년필: 필압별 굵기를 유지하며 구간마다 이차곡선 스무딩
+      let px = pts[0][0], py = pts[0][1];
+      for (let i = 1; i < pts.length - 1; i++) {
+        const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2;
+        g.lineWidth = Math.max(0.5, st.s * (0.45 + 1.1 * (pts[i][2] ?? 0.5)));
+        g.beginPath();
+        g.moveTo(px, py);
+        g.quadraticCurveTo(pts[i][0], pts[i][1], mx, my);
+        g.stroke();
+        px = mx; py = my;
+      }
+      const last = pts[pts.length - 1];
+      g.lineWidth = Math.max(0.5, st.s * (0.45 + 1.1 * (last[2] ?? 0.5)));
+      g.beginPath();
+      g.moveTo(px, py);
+      g.lineTo(last[0], last[1]);
+      g.stroke();
     }
   } else if (st.t === "hl") {
     g.globalAlpha = 0.35 * g.globalAlpha; // 고스트(동기화 재생) 알파와 곱해지도록
@@ -486,6 +563,11 @@ function bindPointer() {
 
     if (g.mode === "draw") {
       if (g.stroke.p.length > 0) {
+        // 긁적여서 지우기: 펜으로 쓱쓱 문지른 자국이면 아래 필기를 지움
+        if (g.stroke.t === "pen" && E.scribble && tryScribbleErase(g.stroke)) {
+          clearLive();
+          return;
+        }
         commit(() => curPage().strokes.push(tagStrokeWithRecording(g.stroke)));
       }
       clearLive();
@@ -618,6 +700,56 @@ function strokeHit(st, pt, r) {
     }
   }
   return false;
+}
+
+// ---------- 긁적여서 지우기 (Scribble to Erase) ----------
+function isScribble(pts) {
+  if (pts.length < 12) return false;
+  // 좌우 방향 전환 횟수
+  let rev = 0, last = 0;
+  let len = 0, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i][0] - pts[i - 1][0];
+    const s = dx > 0.5 ? 1 : dx < -0.5 ? -1 : 0;
+    if (s && last && s !== last) rev++;
+    if (s) last = s;
+    len += Math.hypot(dx, pts[i][1] - pts[i - 1][1]);
+    x0 = Math.min(x0, pts[i][0]); y0 = Math.min(y0, pts[i][1]);
+    x1 = Math.max(x1, pts[i][0]); y1 = Math.max(y1, pts[i][1]);
+  }
+  const diag = Math.hypot(x1 - x0, y1 - y0) || 1;
+  // 지그재그가 5회 이상 + 좁은 영역을 빽빽하게 오간 자국만 (글씨 오인 방지)
+  return rev >= 5 && len > 2.5 * diag;
+}
+
+function tryScribbleErase(scr) {
+  if (!isScribble(scr.p)) return false;
+  const p = curPage();
+  const R = Math.max(10, scr.s * 3);
+  const nearScribble = (x, y) => {
+    for (let b = 0; b < scr.p.length; b += 3) {
+      if (Math.hypot(x - scr.p[b][0], y - scr.p[b][1]) < R) return true;
+    }
+    return false;
+  };
+  const hits = [];
+  for (let i = 0; i < p.strokes.length; i++) {
+    const st = p.strokes[i];
+    const pts = strokePoints(st);
+    let near = 0;
+    const need = st.t === "shape" ? 1 : 2; // 도형은 꼭짓점 1개, 획은 2점 이상 겹쳐야
+    for (let a = 0; a < pts.length; a += st.t === "shape" ? 1 : 2) {
+      if (nearScribble(pts[a][0], pts[a][1]) && ++near >= need) { hits.push(i); break; }
+    }
+  }
+  if (hits.length === 0) return false; // 빈 곳에 그린 지그재그는 그냥 필기로 남김
+  E.undoStack.push(snapshot());
+  E.redoStack = [];
+  trimUndo();
+  for (const i of hits.sort((a, b) => b - a)) p.strokes.splice(i, 1);
+  redrawInk();
+  scheduleSave();
+  return true;
 }
 
 function segDist(p, a, b) {
@@ -1117,10 +1249,21 @@ function updatePageIndicator() {
   $("btn-page-next").disabled = E.cur === E.pages.length - 1;
 }
 
+// 페이지 검색: PDF 추출 텍스트 + 텍스트 상자 내용에서 찾기
+function pageMatches(p, q) {
+  if (!q) return true;
+  if ((p.text || "").toLowerCase().includes(q)) return true;
+  return p.objects.some((o) => o.type === "text" && (o.text || "").toLowerCase().includes(q));
+}
+
 function renderPagePanel() {
   const list = $("page-list");
   list.innerHTML = "";
+  const q = E.pageFilter;
+  let shown = 0;
   E.pages.forEach((p, i) => {
+    if (!pageMatches(p, q)) return;
+    shown++;
     const b = document.createElement("button");
     b.className = "page-thumb";
     if (i === E.cur) b.classList.add("current");
@@ -1135,6 +1278,9 @@ function renderPagePanel() {
     });
     list.appendChild(b);
   });
+  if (shown === 0) {
+    list.innerHTML = `<p class="audio-empty" style="grid-column: 1 / -1;">"${q}"를 찾지 못했어요</p>`;
+  }
 }
 
 // 페이지 미리보기(썸네일) 렌더링
@@ -1157,6 +1303,45 @@ function renderPageThumb(p, w) {
     g.fillText("PDF", c.width / 2, c.height / 2);
   }
   return c;
+}
+
+// ---------- 기존 노트북에 PDF 삽입 ----------
+async function insertPdf(file) {
+  const modal = $("modal-progress");
+  const setP = (t, r) => {
+    modal.classList.remove("hidden");
+    $("progress-title").textContent = "PDF 삽입 중…";
+    $("progress-text").textContent = t;
+    $("progress-bar").style.width = Math.round(r * 100) + "%";
+  };
+  try {
+    flushSave();
+    setP(file.name, 0);
+    const cur = curPage();
+    const next = E.pages[E.cur + 1];
+    const newPages = [];
+    await renderPdfPages(file, async (pg) => {
+      setP(`${pg.i} / ${pg.n} 페이지`, (pg.i - 1) / pg.n);
+      // 현재 페이지와 다음 페이지 사이에 순서 배치
+      const step = next ? (next.order - cur.order) / (pg.n + 1) : 1;
+      const order = cur.order + step * pg.i;
+      const id = await writePdfPage(E.nb.id, order, pg);
+      newPages.push({
+        id, order, template: "blank", w: pg.w, h: pg.h, hasBg: true, text: pg.text || "",
+        strokes: [], objects: [], bgImg: null, bgLoaded: false,
+      });
+    });
+    E.pages.splice(E.cur + 1, 0, ...newPages);
+    modal.classList.add("hidden");
+    E.lastNbBump = 0; bumpNotebook();
+    updatePageIndicator();
+    toast(`${newPages.length}쪽을 삽입했어요`);
+    await showPage(E.cur + 1, true);
+  } catch (e) {
+    console.error(e);
+    modal.classList.add("hidden");
+    toast("PDF 삽입에 실패했어요: " + (e.message || e));
+  }
 }
 
 // ============================================================
@@ -1245,6 +1430,7 @@ function bindToolbar() {
     const b = e.target.closest("button"); if (!b) return;
     E.penStyle = b.dataset.p;
     document.querySelectorAll("#pen-options button").forEach((x) => x.classList.toggle("selected", x === b));
+    savePrefs();
   });
   $("tool-image").addEventListener("click", () => $("input-image").click());
   $("input-image").addEventListener("change", (e) => {
@@ -1264,17 +1450,21 @@ function bindToolbar() {
     E.color = b.dataset.c;
     document.querySelectorAll("#color-row .col").forEach((x) => x.classList.toggle("selected", x === b));
     $("color-custom").value = rgbToHex(E.color);
+    savePrefs();
   });
   $("color-custom").addEventListener("input", (e) => {
     E.color = e.target.value;
     document.querySelectorAll("#color-row .col").forEach((x) => x.classList.remove("selected"));
+    savePrefs();
   });
 
   $("size-slider").addEventListener("input", (e) => {
     E.size = Number(e.target.value);
     $("size-label").textContent = E.size;
+    savePrefs();
   });
-  $("finger-draw").addEventListener("change", (e) => { E.fingerDraw = e.target.checked; });
+  $("finger-draw").addEventListener("change", (e) => { E.fingerDraw = e.target.checked; savePrefs(); });
+  $("scribble-erase").addEventListener("change", (e) => { E.scribble = e.target.checked; savePrefs(); });
 
   $("btn-undo").addEventListener("click", undo);
   $("btn-redo").addEventListener("click", redo);
@@ -1368,6 +1558,16 @@ function bindPages() {
   menuDo("menu-add-tpl-blank", () => addPage("blank"));
   menuDo("menu-add-tpl-lines", () => addPage("lines"));
   menuDo("menu-add-tpl-grid", () => addPage("grid"));
+  menuDo("menu-insert-pdf", () => $("input-pdf-insert").click());
+  $("input-pdf-insert").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (f) insertPdf(f);
+  });
+  $("page-search").addEventListener("input", (e) => {
+    E.pageFilter = e.target.value.trim().toLowerCase();
+    renderPagePanel();
+  });
   menuDo("menu-export-pdf", exportPdf);
   menuDo("menu-clear-page", () => {
     if (confirm("이 페이지의 필기를 모두 지울까요? (배경은 유지)")) {

@@ -185,6 +185,9 @@
         <label class="finger-toggle" title="켜면 손가락으로도 필기됩니다">
           <input type="checkbox" id="finger-draw" /> 손가락 필기
         </label>
+        <label class="finger-toggle" title="펜으로 쓱쓱 문지르면 아래 필기가 지워져요">
+          <input type="checkbox" id="scribble-erase" checked /> 긁적 지우기
+        </label>
       </div>
     </div>
 
@@ -204,6 +207,7 @@
     <!-- 텍스트 입력 오버레이 -->
     <textarea id="text-editor-overlay" class="text-editor-overlay hidden"></textarea>
     <input type="file" id="input-image" accept="image/*" class="hidden" />
+    <input type="file" id="input-pdf-insert" accept="application/pdf" class="hidden" />
 
     <!-- 페이지 목록 패널 -->
     <div id="page-panel" class="page-panel hidden">
@@ -211,6 +215,7 @@
         <strong>페이지</strong>
         <button id="page-panel-close" class="icon-btn">✕</button>
       </div>
+      <input type="search" id="page-search" class="page-search" placeholder="🔍 PDF 내용·텍스트 검색" />
       <div id="page-list" class="page-list"></div>
     </div>
 
@@ -239,6 +244,7 @@
       <button id="menu-add-tpl-blank">＋ 백지 페이지</button>
       <button id="menu-add-tpl-lines">＋ 줄노트 페이지</button>
       <button id="menu-add-tpl-grid">＋ 모눈 페이지</button>
+      <button id="menu-insert-pdf">📄 PDF 가져와 삽입</button>
       <button id="menu-export-pdf">📤 PDF로 내보내기</button>
       <button id="menu-clear-page">🧹 이 페이지 필기 지우기</button>
       <button id="menu-delete-page" class="danger">🗑 이 페이지 삭제</button>
