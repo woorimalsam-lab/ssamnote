@@ -188,54 +188,66 @@
       </div>
     </header>
 
-    <!-- 보조 바 (흰색): 실행취소 + 펜 옵션 + 굵기 + 색 + 페이지 이동 -->
+    <!-- 보조 바: 떠 있는 알약 툴바 (실행취소 | 펜·굵기·색 | 페이지) -->
     <div class="editor-tools">
-      <div class="tool-group">
+      <div class="tool-group float-pill">
         <button id="btn-undo" class="icon-btn" title="실행 취소">↩</button>
         <button id="btn-redo" class="icon-btn" title="다시 실행">↪</button>
       </div>
-      <div class="tool-group" id="pen-options">
-        <button data-p="fountain" class="pen-style-btn selected" title="필압에 따라 굵기가 변합니다">만년필</button>
-        <button data-p="ball" class="pen-style-btn" title="균일한 굵기">볼펜</button>
-      </div>
-      <div class="tool-group" id="shape-options">
-        <button data-s="line" class="shape-btn selected" title="직선">╱</button>
-        <button data-s="arrow" class="shape-btn" title="화살표">➚</button>
-        <button data-s="rect" class="shape-btn" title="사각형">▭</button>
-        <button data-s="ellipse" class="shape-btn" title="원">◯</button>
-      </div>
-      <div class="tool-group" id="size-presets">
-        <button data-s="2" class="size-dot" title="얇게"><span style="width:6px;height:6px"></span></button>
-        <button data-s="4" class="size-dot" title="중간"><span style="width:10px;height:10px"></span></button>
-        <button data-s="8" class="size-dot" title="굵게"><span style="width:16px;height:16px"></span></button>
-        <input type="range" id="size-slider" min="1" max="30" value="3" />
-        <span id="size-label">3</span>
-      </div>
-      <div class="tool-group">
-        <div id="color-row" class="color-picker-row">
-          <button data-c="#1a1a1a" class="col selected" style="background:#1a1a1a"></button>
-          <button data-c="#22b8cf" class="col" style="background:#22b8cf"></button>
-          <button data-c="#fcc419" class="col" style="background:#fcc419"></button>
-          <button data-c="#37b24d" class="col" style="background:#37b24d"></button>
-          <button data-c="#f783ac" class="col" style="background:#f783ac"></button>
-          <button data-c="#e5484d" class="col" style="background:#e5484d"></button>
-          <input type="color" id="color-custom" value="#1a1a1a" title="다른 색" />
+      <div class="tools-center">
+        <div class="tool-group float-pill main-pill">
+          <span id="pen-options">
+            <button data-p="fountain" class="pen-style-btn selected" title="필압에 따라 굵기가 변합니다">만년필</button>
+            <button data-p="ball" class="pen-style-btn" title="균일한 굵기">볼펜</button>
+          </span>
+          <span id="shape-options">
+            <button data-s="line" class="shape-btn selected" title="직선">╱</button>
+            <button data-s="arrow" class="shape-btn" title="화살표">➚</button>
+            <button data-s="rect" class="shape-btn" title="사각형">▭</button>
+            <button data-s="ellipse" class="shape-btn" title="원">◯</button>
+          </span>
+          <span id="size-presets">
+            <button data-s="2" class="size-dot" title="얇게"><span style="width:6px;height:6px"></span></button>
+            <button data-s="4" class="size-dot" title="중간"><span style="width:10px;height:10px"></span></button>
+            <button data-s="8" class="size-dot" title="굵게"><span style="width:16px;height:16px"></span></button>
+          </span>
+          <span class="pill-divider"></span>
+          <span id="color-row" class="color-picker-row">
+            <button data-c="#1a1a1a" class="col selected" style="background:#1a1a1a"></button>
+            <button data-c="#22b8cf" class="col" style="background:#22b8cf"></button>
+            <button data-c="#fcc419" class="col" style="background:#fcc419"></button>
+            <button data-c="#37b24d" class="col" style="background:#37b24d"></button>
+            <button data-c="#f783ac" class="col" style="background:#f783ac"></button>
+            <button data-c="#e5484d" class="col" style="background:#e5484d"></button>
+            <input type="color" id="color-custom" value="#1a1a1a" title="다른 색" />
+          </span>
+          <span class="pill-divider"></span>
+          <button id="btn-tool-settings" class="icon-btn" title="펜 세부 설정">⊙</button>
         </div>
       </div>
-      <div class="tool-group">
-        <label class="finger-toggle" title="켜면 손가락으로도 필기됩니다">
-          <input type="checkbox" id="finger-draw" /> 손가락 필기
-        </label>
-        <label class="finger-toggle" title="펜으로 쓱쓱 문지르면 아래 필기가 지워져요">
-          <input type="checkbox" id="scribble-erase" checked /> 긁적 지우기
-        </label>
-      </div>
-      <div class="tool-group page-nav-group">
+      <div class="tool-group float-pill page-nav-group">
         <button id="btn-page-prev" class="icon-btn" title="이전 페이지">‹</button>
         <button id="btn-page-indicator" class="page-indicator" title="페이지 목록">1 / 1</button>
         <button id="btn-page-next" class="icon-btn" title="다음 페이지">›</button>
         <button id="btn-page-add" class="icon-btn" title="페이지 추가">＋</button>
       </div>
+    </div>
+
+    <!-- 펜 세부 설정 팝오버 -->
+    <div id="settings-menu" class="page-menu settings-menu hidden">
+      <label class="settings-row">
+        <span>굵기 미세 조절</span>
+        <span class="settings-slider">
+          <input type="range" id="size-slider" min="1" max="30" value="3" />
+          <span id="size-label">3</span>
+        </span>
+      </label>
+      <label class="finger-toggle settings-row" title="켜면 손가락으로도 필기됩니다">
+        <input type="checkbox" id="finger-draw" /> 손가락 필기
+      </label>
+      <label class="finger-toggle settings-row" title="펜으로 쓱쓱 문지르면 아래 필기가 지워져요">
+        <input type="checkbox" id="scribble-erase" checked /> 긁적 지우기
+      </label>
     </div>
 
     <!-- 캔버스 영역 -->

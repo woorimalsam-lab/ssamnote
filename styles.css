@@ -359,9 +359,7 @@ button, label { touch-action: manipulation; }
 
 /* ---------- 편집기 ---------- */
 #screen-editor {
-  background:
-    radial-gradient(1000px 500px at 50% -20%, #e6ecf8 0%, transparent 70%),
-    #e2e7f0;
+  background: #f2f3f6; /* 스크린샷처럼 밝은 회백색 작업 영역 */
 }
 
 /* 상단 바: 굿노트풍 진한 파랑 + 흰 아이콘, 도구가 중앙에 */
@@ -406,19 +404,32 @@ button, label { touch-action: manipulation; }
 }
 .page-indicator:hover { background: #dde7ff; }
 
+/* 떠 있는 알약 툴바 (굿노트 스타일) */
 .editor-tools {
-  display: flex; align-items: center; gap: 14px; flex-wrap: nowrap;
-  overflow-x: auto;
-  background: var(--glass);
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--hairline);
+  display: flex; align-items: flex-start; gap: 10px; flex-wrap: nowrap;
+  background: transparent;
+  padding: 10px 12px 2px;
   z-index: 9;
-  scrollbar-width: none;
 }
-.editor-tools::-webkit-scrollbar { display: none; }
-.tool-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.tool-group + .tool-group { border-left: 1px solid var(--hairline); padding-left: 14px; }
+.tool-group { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.float-pill {
+  background: rgba(255, 255, 255, .95);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, .8);
+  border-radius: 999px;
+  box-shadow: 0 2px 4px rgba(16, 24, 40, .06), 0 8px 22px rgba(16, 24, 40, .12);
+  padding: 4px 8px;
+}
+.tools-center {
+  flex: 1; min-width: 0;
+  display: flex; justify-content: center;
+  overflow-x: auto; scrollbar-width: none;
+  padding-bottom: 4px;
+}
+.tools-center::-webkit-scrollbar { display: none; }
+.main-pill { gap: 4px; }
+.main-pill > span { display: inline-flex; align-items: center; gap: 2px; }
+.pill-divider { width: 1px; height: 22px; background: var(--hairline); margin: 0 5px; }
 
 .tool-btn, .shape-btn {
   width: 44px; height: 44px; border: none; border-radius: 13px; background: transparent;
@@ -445,6 +456,17 @@ button, label { touch-action: manipulation; }
 .size-dot.selected { background: var(--primary-soft); box-shadow: inset 0 0 0 2px var(--primary); }
 
 .page-nav-group { margin-left: auto; }
+
+/* 펜 세부 설정 팝오버 */
+.settings-menu { top: 112px; left: 50%; right: auto; transform: translateX(-50%); min-width: 280px; }
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 14px; font-size: 14.5px; color: var(--text); cursor: pointer;
+}
+.settings-row > span:first-child { font-weight: 500; }
+.settings-slider { display: flex; align-items: center; gap: 8px; }
+.settings-slider input[type="range"] { width: 120px; accent-color: var(--primary); }
+#size-label { font-size: 13px; color: var(--text-dim); width: 20px; text-align: center; }
 
 .pen-style-btn {
   border: 1.5px solid var(--border); border-radius: 999px; background: #fff;

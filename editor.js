@@ -146,7 +146,9 @@ export async function openNotebook(nb) {
       // 페이지가 없으면 하나 생성
       await addPageDoc(nb.template || "blank", 0);
     }
-    await showPage(0, true);
+    // 마지막으로 편집하던 페이지에서 이어서
+    const lastIdx = nb.lastPage ? E.pages.findIndex((p) => p.id === nb.lastPage) : 0;
+    await showPage(lastIdx >= 0 ? lastIdx : 0, true);
     setStatus("저장됨");
   } catch (e) {
     console.error(e);
@@ -186,6 +188,13 @@ async function showPage(i, refit = false) {
   if (refit) fitView();
   applyView();
   updatePageIndicator();
+
+  // 보고 있는 페이지를 기억 (다음에 열 때 이어서)
+  if (E.nb && E.nb.lastPage !== p.id) {
+    E.nb.lastPage = p.id;
+    const { fs, db } = ctx.fb;
+    fs.updateDoc(fs.doc(db, "users", ctx.user.uid, "notebooks", E.nb.id), { lastPage: p.id }).catch(() => {});
+  }
 
   drawBackground(p);
   if (p.hasBg && !p.bgLoaded) loadPageBg(p);
@@ -1548,6 +1557,18 @@ function bindToolbar() {
     syncSizeDots();
     savePrefs();
   });
+  // 펜 세부 설정 팝오버 (⊙)
+  const settingsMenu = $("settings-menu");
+  $("btn-tool-settings").addEventListener("click", (e) => {
+    e.stopPropagation();
+    settingsMenu.classList.toggle("hidden");
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (!settingsMenu.classList.contains("hidden") && !settingsMenu.contains(e.target) && e.target.id !== "btn-tool-settings") {
+      settingsMenu.classList.add("hidden");
+    }
+  });
+
   // 굵기 프리셋 (얇게/중간/굵게)
   $("size-presets").addEventListener("click", (e) => {
     const b = e.target.closest("button.size-dot"); if (!b) return;
