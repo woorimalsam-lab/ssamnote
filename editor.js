@@ -19,6 +19,8 @@ const E = {
   penStyle: "fountain", // fountain(만년필: 필압 반영) | ball(볼펜: 균일)
   shape: "line",
   color: "#1a1a1a",
+  hlColor: "#ffe066",   // 형광펜 전용 색 (파스텔)
+  hlStraight: true,     // 형광펜 자동 직선 보정
   size: 3,
   lasso: null,      // 올가미 선택 {strokeIdxs:[], objIdxs:[], bbox:{x,y,w,h}}
   fingerDraw: false,
@@ -70,6 +72,7 @@ function savePrefs() {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify({
       color: E.color, size: E.size, penStyle: E.penStyle,
+      hlColor: E.hlColor, hlStraight: E.hlStraight,
       fingerDraw: E.fingerDraw, scribble: E.scribble,
     }));
   } catch {}
@@ -97,6 +100,15 @@ function loadPrefs() {
   if (typeof p.scribble === "boolean") {
     E.scribble = p.scribble;
     $("scribble-erase").checked = p.scribble;
+  }
+  if (typeof p.hlStraight === "boolean") {
+    E.hlStraight = p.hlStraight;
+    $("hl-straight").checked = p.hlStraight;
+  }
+  if (typeof p.hlColor === "string") {
+    E.hlColor = p.hlColor;
+    document.querySelectorAll("#hl-options .hl-col").forEach((x) =>
+      x.classList.toggle("selected", x.dataset.h === p.hlColor));
   }
   if (typeof p.color === "string") {
     E.color = p.color;
@@ -307,7 +319,7 @@ function redrawInk() {
   inkG.setTransform(1, 0, 0, 1, 0, 0);
   inkG.clearRect(0, 0, inkC.width, inkC.height);
   inkG.setTransform(RES, 0, 0, RES, 0, 0);
-  for (const st of p.strokes) {
+  for (const st of orderedStrokes(p)) {
     // 동기화 재생 중: 아직 안 쓴 필기는 흐리게(고스트)
     if (E.player && st.rid === E.player.recId && st.rt != null && st.rt > E.player.time + 0.2) {
       inkG.globalAlpha = 0.13;
@@ -504,7 +516,8 @@ function bindPointer() {
         stroke: {
           t: E.tool === "pen" ? "pen" : "hl",
           ...(E.tool === "pen" ? { ps: E.penStyle } : {}),
-          color: E.color, s: E.size,
+          color: E.tool === "pen" ? E.color : E.hlColor,
+          s: E.size,
           p: [[round1(pt.x), round1(pt.y), round2(e.pressure || 0.5)]],
         },
       };
@@ -608,6 +621,8 @@ function bindPointer() {
           clearLive();
           return;
         }
+        // 형광펜 자동 직선 보정 (밑줄 긋기)
+        if (g.stroke.t === "hl" && E.hlStraight) straightenHl(g.stroke);
         commit(() => curPage().strokes.push(tagStrokeWithRecording(g.stroke)));
       }
       clearLive();
@@ -752,6 +767,30 @@ function strokeHit(st, pt, r) {
     }
   }
   return false;
+}
+
+// ---------- 형광펜: 자동 직선 보정 ----------
+function straightenHl(st) {
+  const pts = st.p;
+  if (pts.length < 3) return;
+  const p0 = pts[0], pn = pts[pts.length - 1];
+  const chord = Math.hypot(pn[0] - p0[0], pn[1] - p0[1]);
+  if (chord < 40) return;
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  if (len > chord * 1.3) return; // 많이 구불거리면 그대로 둠
+  let maxD = 0;
+  for (const q of pts) maxD = Math.max(maxD, segDist({ x: q[0], y: q[1] }, p0, pn));
+  if (maxD < Math.max(7, chord * 0.07)) {
+    st.p = [[p0[0], p0[1], 0.5], [pn[0], pn[1], 0.5]];
+  }
+}
+
+// 형광펜은 항상 글씨(펜·도형) 아래에 깔리도록 그리는 순서 정렬
+function orderedStrokes(p) {
+  const hl = [], rest = [];
+  for (const st of p.strokes) (st.t === "hl" ? hl : rest).push(st);
+  return hl.concat(rest);
 }
 
 // ---------- 긁적여서 지우기 (Scribble to Erase) ----------
@@ -1401,7 +1440,7 @@ function renderPageThumb(p, w) {
   const g = c.getContext("2d");
   drawBackgroundTo(g, p, k, c.width, c.height);
   g.setTransform(k, 0, 0, k, 0, 0);
-  for (const st of p.strokes) drawStroke(g, st);
+  for (const st of orderedStrokes(p)) drawStroke(g, st);
   for (const o of p.objects) { if (!o._hidden) drawObject(g, o); }
   // 아직 배경을 안 불러온 PDF 페이지 표시
   if (p.hasBg && !p.bgImg) {
@@ -1497,7 +1536,7 @@ async function exportPdf() {
       c.height = Math.round(p.h * SCALE);
       drawBackgroundTo(g, p, SCALE, c.width, c.height);
       g.setTransform(SCALE, 0, 0, SCALE, 0, 0);
-      for (const st of p.strokes) drawStroke(g, st);
+      for (const st of orderedStrokes(p)) drawStroke(g, st);
       for (const o of p.objects) drawObject(g, o);
 
       const img = c.toDataURL("image/jpeg", 0.85);
@@ -1528,6 +1567,8 @@ function setTool(tool) {
   }
   $("shape-options").style.display = tool === "shape" ? "" : "none";
   $("pen-options").style.display = tool === "pen" ? "" : "none";
+  $("hl-options").style.display = tool === "highlighter" ? "" : "none";
+  $("color-row").style.display = tool === "highlighter" ? "none" : ""; // 형광펜은 전용 색만
   if (tool !== "select" && tool !== "lasso") clearSelection();
 }
 
@@ -1541,6 +1582,15 @@ function bindToolbar() {
     document.querySelectorAll("#pen-options button").forEach((x) => x.classList.toggle("selected", x === b));
     savePrefs();
   });
+  // 형광펜 전용 색 / 직선 보정
+  $("hl-options").style.display = "none";
+  $("hl-options").addEventListener("click", (e) => {
+    const b = e.target.closest("button.hl-col"); if (!b) return;
+    E.hlColor = b.dataset.h;
+    document.querySelectorAll("#hl-options .hl-col").forEach((x) => x.classList.toggle("selected", x === b));
+    savePrefs();
+  });
+  $("hl-straight").addEventListener("change", (e) => { E.hlStraight = e.target.checked; savePrefs(); });
   $("tool-image").addEventListener("click", () => $("input-image").click());
   $("input-image").addEventListener("change", (e) => {
     const f = e.target.files[0];
