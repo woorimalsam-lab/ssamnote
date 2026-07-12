@@ -5,7 +5,7 @@
 //  - 페이지 데이터는 Firestore users/{uid}/pages 에 자동 저장
 // ============================================================
 
-import { ctx, toast, showScreen, pageCol } from "./app.js";
+import { ctx, toast, showScreen, pageCol, openRenameNotebook } from "./app.js";
 
 const $ = (id) => document.getElementById(id);
 const RES = 2; // 캔버스 해상도 배율 (태블릿 메모리 고려)
@@ -1247,6 +1247,10 @@ function bindToolbar() {
 
   $("btn-undo").addEventListener("click", undo);
   $("btn-redo").addEventListener("click", redo);
+  // 제목을 탭하면 이름 바꾸기
+  $("editor-title").addEventListener("click", () => {
+    if (E.nb) openRenameNotebook(E.nb, (t) => { $("editor-title").textContent = t; });
+  });
   $("btn-back").addEventListener("click", () => {
     commitTextEditor(); flushSave();
     showScreen("shelf");

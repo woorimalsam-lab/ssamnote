@@ -127,7 +127,7 @@ function renderShelf() {
     // 굿노트풍 표지: 색 표지 + 제본 홈 + 흰 라벨
     const card = document.createElement("div");
     card.className = "nb-card";
-    card.style.background = nb.color || "#4a6cf7";
+    card.style.setProperty("--c", nb.color || "#2f6bff");
 
     const label = document.createElement("div");
     label.className = "nb-label";
@@ -151,22 +151,40 @@ function renderShelf() {
   }
 }
 
-async function notebookMenu(nb) {
-  const action = prompt(
-    `"${nb.title}"\n\n1 = 이름 바꾸기\n2 = 삭제\n\n번호를 입력하세요:`, ""
-  );
-  if (action === "1") {
-    const t = prompt("새 이름:", nb.title);
-    if (t && t.trim()) {
-      const { fs, db } = ctx.fb;
-      await fs.updateDoc(fs.doc(db, "users", ctx.user.uid, "notebooks", nb.id), {
-        title: t.trim(), updatedAt: fs.serverTimestamp(),
-      });
-    }
-  } else if (action === "2") {
-    if (!confirm(`"${nb.title}" 노트북과 모든 페이지를 삭제할까요?\n되돌릴 수 없어요.`)) return;
-    await deleteNotebook(nb);
-    toast("삭제했어요");
+// ---------- 노트북 메뉴 / 이름 바꾸기 ----------
+let menuTarget = null;
+let renameTarget = null;
+let renameCallback = null;
+
+function notebookMenu(nb) {
+  menuTarget = nb;
+  $("nbmenu-title").textContent = nb.title || "제목 없음";
+  $("modal-nbmenu").classList.remove("hidden");
+}
+
+export function openRenameNotebook(nb, cb = null) {
+  renameTarget = nb;
+  renameCallback = cb;
+  $("rename-input").value = nb.title || "";
+  $("modal-rename").classList.remove("hidden");
+  setTimeout(() => { $("rename-input").focus(); $("rename-input").select(); }, 60);
+}
+
+async function saveRename() {
+  const t = $("rename-input").value.trim();
+  $("modal-rename").classList.add("hidden");
+  if (!renameTarget || !t || t === renameTarget.title) return;
+  try {
+    const { fs, db } = ctx.fb;
+    await fs.updateDoc(fs.doc(db, "users", ctx.user.uid, "notebooks", renameTarget.id), {
+      title: t, updatedAt: fs.serverTimestamp(),
+    });
+    renameTarget.title = t;
+    if (renameCallback) renameCallback(t);
+    toast("이름을 바꿨어요");
+  } catch (e) {
+    console.error(e);
+    toast("이름 변경에 실패했어요: " + (e.message || e));
   }
 }
 
@@ -300,6 +318,31 @@ function bindEvents() {
       b.classList.add("selected");
     });
   }
+
+  // 노트북 메뉴 / 이름 바꾸기
+  $("nbmenu-cancel").addEventListener("click", () => $("modal-nbmenu").classList.add("hidden"));
+  $("nbmenu-rename").addEventListener("click", () => {
+    $("modal-nbmenu").classList.add("hidden");
+    if (menuTarget) openRenameNotebook(menuTarget);
+  });
+  $("nbmenu-delete").addEventListener("click", async () => {
+    $("modal-nbmenu").classList.add("hidden");
+    if (!menuTarget) return;
+    if (!confirm(`"${menuTarget.title}" 노트북과 모든 페이지를 삭제할까요?\n되돌릴 수 없어요.`)) return;
+    try {
+      await deleteNotebook(menuTarget);
+      toast("삭제했어요");
+    } catch (e) {
+      console.error(e);
+      toast("삭제에 실패했어요: " + (e.message || e));
+    }
+  });
+  $("rename-cancel").addEventListener("click", () => $("modal-rename").classList.add("hidden"));
+  $("rename-save").addEventListener("click", saveRename);
+  $("rename-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") saveRename();
+    if (e.key === "Escape") $("modal-rename").classList.add("hidden");
+  });
 
   $("shelf-search").addEventListener("input", (e) => {
     shelfFilter = e.target.value.trim().toLowerCase();
