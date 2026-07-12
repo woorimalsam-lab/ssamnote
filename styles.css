@@ -189,6 +189,11 @@ button, label { touch-action: manipulation; }
   background: var(--primary); border-color: var(--primary); color: #fff;
   box-shadow: 0 4px 12px rgba(47, 107, 255, .3);
 }
+.folder-tab.drop-target {
+  outline: 2.5px dashed var(--primary); outline-offset: 2px;
+  background: var(--primary-soft); color: var(--primary);
+  transform: scale(1.06);
+}
 
 .move-list { display: flex; flex-direction: column; gap: 8px; max-height: 45vh; overflow-y: auto; }
 .move-list .current-folder {

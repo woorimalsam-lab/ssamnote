@@ -1494,17 +1494,21 @@ async function insertPdf(file) {
     const cur = curPage();
     const next = E.pages[E.cur + 1];
     const newPages = [];
+    const pending = [];
     await renderPdfPages(file, async (pg) => {
-      setP(`${pg.i} / ${pg.n} 페이지`, (pg.i - 1) / pg.n);
+      setP(`${pg.i} / ${pg.n} 페이지`, (pg.i - 1) / pg.n * 0.7);
       // 현재 페이지와 다음 페이지 사이에 순서 배치
       const step = next ? (next.order - cur.order) / (pg.n + 1) : 1;
       const order = cur.order + step * pg.i;
-      const id = await writePdfPage(E.nb.id, order, pg);
+      const { id, done } = writePdfPage(E.nb.id, order, pg);
+      pending.push(done);
       newPages.push({
         id, order, template: "blank", w: pg.w, h: pg.h, hasBg: true, text: pg.text || "",
         strokes: [], objects: [], bgImg: null, bgLoaded: false,
       });
     });
+    setP("클라우드에 업로드 중…", 0.85);
+    await Promise.all(pending);
     E.pages.splice(E.cur + 1, 0, ...newPages);
     modal.classList.add("hidden");
     E.lastNbBump = 0; bumpNotebook();

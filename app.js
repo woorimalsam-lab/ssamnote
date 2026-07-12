@@ -127,7 +127,7 @@ const FEATURES = [
   { icon: "📑", name: "페이지 이동", desc: "• 손가락으로 화면을 옆으로 쓸어 넘기면(스와이프) 페이지가 넘어가요 (확대 중일 땐 화면 이동으로 동작)\n• '1 / 5' 페이지 표시를 누르면 모든 페이지의 미리보기가 격자로 떠서 바로 이동할 수 있어요\n• ＋ 버튼으로 페이지 추가, ⋮ 메뉴에서 백지·줄노트·모눈 템플릿 선택\n• 노트북을 다시 열면 마지막으로 보던 페이지에서 이어져요" },
   { icon: "📐", name: "도형 자동 보정", desc: "펜으로 선이나 도형을 그린 뒤, 펜을 떼지 말고 잠깐(0.6초) 멈춰 보세요.\n\n• 밑줄·직선 → 곧은 직선으로\n• 동그라미 → 매끈한 원으로\n• 네모 → 반듯한 사각형으로 바뀌어요\n\n바뀐 상태에서 계속 끌면 크기를 조절할 수 있어요. 그냥 그리고 바로 떼면 손글씨 그대로 남아요." },
   { icon: "🧑‍🏫", name: "화이트보드·빠른 메모", desc: "• 화이트보드: 새 노트북 템플릿에서 '화이트보드'를 고르면 점 패턴의 넓은 가로 캔버스가 생겨요 — 마인드맵, 수업 구상, 브레인스토밍에 좋아요\n\n• ⚡ 빠른 메모: 책장 오른쪽 아래 버튼을 누르면 이름 입력 없이 즉시 메모장이 열려요 (날짜·시간이 자동 제목)" },
-  { icon: "📁", name: "폴더·순서 정리", desc: "책장에서 노트북을 폴더로 정리하고 순서도 바꿀 수 있어요.\n\n• 노트북을 길게(0.4초) 누르면 들려요 → 끌어서 원하는 위치에 놓기\n• 노트북 목록 위 '＋ 새 폴더'로 폴더 만들기\n• 노트북의 ⋮ → '폴더로 이동'\n• 선택된 폴더 탭을 한 번 더 누르면 이름 바꾸기·삭제\n\n폴더를 보면서 새 노트북을 만들면 자동으로 그 폴더에 들어가요." },
+  { icon: "📁", name: "폴더·순서 정리", desc: "책장에서 노트북을 폴더로 정리하고 순서도 바꿀 수 있어요.\n\n• 노트북을 길게(0.4초) 누르면 들려요 → 끌어서 원하는 위치에 놓기 (폴더 안에서도 동일)\n• 끌어서 위의 폴더 탭에 떨어뜨리면 그 폴더로 이동\n• 노트북의 ⋮ → '복제'로 사본 만들기 (필기·PDF 포함)\n• '＋ 새 폴더'로 폴더 만들기, 선택된 폴더 탭 재탭 → 이름 바꾸기·삭제\n\n폴더를 보면서 새 노트북을 만들면 자동으로 그 폴더에 들어가요." },
 ];
 
 function renderFeatureStrip() {
@@ -266,6 +266,12 @@ function onCardDragMove(e) {
     if (cards.indexOf(d.card) < cards.indexOf(over)) grid.insertBefore(d.card, over.nextSibling);
     else grid.insertBefore(d.card, over);
   }
+
+  // 폴더 탭 위로 끌면 그 폴더로 이동 (하이라이트)
+  const tab = el && el.closest ? el.closest(".folder-tab[data-fid]") : null;
+  if (d.overTab && d.overTab !== tab) d.overTab.classList.remove("drop-target");
+  d.overTab = tab;
+  if (tab) tab.classList.add("drop-target");
   // 가장자리 자동 스크롤
   const main = document.querySelector(".shelf-main");
   const mr = main.getBoundingClientRect();
@@ -282,6 +288,26 @@ async function endCardDrag() {
   d.card.classList.remove("drag-src");
   suppressOpen = true;
   setTimeout(() => { suppressOpen = false; }, 350);
+
+  // 폴더 탭 위에 놓았으면 그 폴더로 이동
+  if (d.overTab) {
+    d.overTab.classList.remove("drop-target");
+    const fid = d.overTab.dataset.fid || null;
+    if ((d.nb.folder ?? null) !== fid) {
+      try {
+        const { fs, db } = ctx.fb;
+        await fs.updateDoc(fs.doc(db, "users", ctx.user.uid, "notebooks", d.nb.id), { folder: fid });
+        d.nb.folder = fid;
+        renderShelf();
+        const fname = fid ? (ctx.folders.find((f) => f.id === fid)?.name || "폴더") : "전체";
+        toast(`"${d.nb.title}"을(를) ${fid ? `📁 ${fname}` : "전체"}로 옮겼어요`);
+      } catch (e) {
+        console.error(e);
+        toast("이동에 실패했어요: " + (e.message || e));
+      }
+    }
+    return;
+  }
 
   // 화면의 카드 순서를 pos로 저장 (바뀐 것만)
   const ids = [...$("shelf-grid").querySelectorAll(".nb-card")].map((c) => c.dataset.id);
@@ -348,6 +374,57 @@ export function openRenameNotebook(nb, cb = null) {
   });
 }
 
+// ---------- 노트북 복제 (페이지 + PDF 배경 포함, 같은 폴더에) ----------
+async function duplicateNotebook(src) {
+  const { fs, db } = ctx.fb;
+  try {
+    progress(true, "복제 중…", "페이지를 읽는 중…", 0.05);
+    const snap = await fs.getDocs(fs.query(pageCol(), fs.where("nb", "==", src.id)));
+    const pages = snap.docs;
+
+    // 새 노트북 문서 — 원본 바로 뒤 위치(pos + 0.5)
+    const nbRef = fs.doc(nbCol());
+    const nbData = {
+      title: (src.title || "노트북") + " 사본",
+      color: src.color || "#2f6bff",
+      template: src.template || "blank",
+      pageCount: pages.length || src.pageCount || 1,
+      folder: src.folder ?? null,
+      createdAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp(),
+    };
+    if (src.cover) nbData.cover = src.cover;
+    if (typeof src.pos === "number") nbData.pos = src.pos + 0.5;
+    await fs.setDoc(nbRef, nbData);
+
+    // 페이지 + 배경 조각 복사 (페이지별 batch, 병렬 업로드)
+    const pending = [];
+    for (let i = 0; i < pages.length; i++) {
+      progress(true, "복제 중…", `${i + 1} / ${pages.length} 페이지`, 0.1 + (i / Math.max(1, pages.length)) * 0.6);
+      const d = pages[i];
+      const batch = fs.writeBatch(db);
+      const newRef = fs.doc(pageCol());
+      batch.set(newRef, { ...d.data(), nb: nbRef.id, updatedAt: fs.serverTimestamp() });
+      const bgSnap = await fs.getDocs(fs.collection(d.ref, "bg"));
+      for (const c of bgSnap.docs) {
+        batch.set(fs.doc(fs.collection(newRef, "bg"), c.id), c.data());
+      }
+      pending.push(batch.commit());
+    }
+    let doneCount = 0;
+    pending.forEach((pr) => pr.then(() => {
+      doneCount++;
+      progress(true, "복제 중…", `업로드 ${doneCount} / ${pending.length}`, 0.7 + (doneCount / Math.max(1, pending.length)) * 0.3);
+    }));
+    await Promise.all(pending);
+    progress(false);
+    toast(`"${nbData.title}" 만들었어요`);
+  } catch (e) {
+    console.error(e);
+    progress(false);
+    toast("복제에 실패했어요: " + (e.message || e));
+  }
+}
+
 // ---------- 폴더 ----------
 let currentFolder = null; // null = 전체
 let unsubFolders = null;
@@ -373,15 +450,16 @@ function watchFolders() {
 function renderFolderTabs() {
   const wrap = $("folder-tabs");
   wrap.innerHTML = "";
-  const mkTab = (label, selected, onClick) => {
+  const mkTab = (label, selected, onClick, fid) => {
     const b = document.createElement("button");
     b.className = "folder-tab" + (selected ? " selected" : "");
     b.textContent = label;
+    if (fid !== undefined) b.dataset.fid = fid; // 드래그로 떨어뜨릴 대상
     b.addEventListener("click", onClick);
     wrap.appendChild(b);
     return b;
   };
-  mkTab("전체", !currentFolder, () => { currentFolder = null; renderFolderTabs(); renderShelf(); });
+  mkTab("전체", !currentFolder, () => { currentFolder = null; renderFolderTabs(); renderShelf(); }, "");
   for (const f of ctx.folders || []) {
     mkTab(`📁 ${f.name}`, currentFolder?.id === f.id, () => {
       if (currentFolder?.id === f.id) {
@@ -393,7 +471,7 @@ function renderFolderTabs() {
         currentFolder = f;
         renderFolderTabs(); renderShelf();
       }
-    });
+    }, f.id);
   }
   mkTab("＋ 새 폴더", false, () => {
     openTextPrompt("새 폴더", "", async (name) => {
@@ -544,14 +622,14 @@ export async function renderPdfPages(file, onPage) {
   for (let i = 1; i <= n; i++) {
     const page = await pdf.getPage(i);
     const vp1 = page.getViewport({ scale: 1 });
-    const scale = 1536 / vp1.width;
+    const scale = 1440 / vp1.width; // 업로드 속도를 위해 1536→1440 (필기·확대에 충분)
     const vp = page.getViewport({ scale });
     canvas.width = Math.round(vp.width);
     canvas.height = Math.round(vp.height);
     cx.fillStyle = "#fff";
     cx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvasContext: cx, viewport: vp }).promise;
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.78);
 
     // 페이지 텍스트 추출 (노트 내 검색용)
     let text = "";
@@ -569,22 +647,24 @@ export async function renderPdfPages(file, onPage) {
   return n;
 }
 
-// 페이지 문서 + 배경 조각 저장
-export async function writePdfPage(nbId, order, pg) {
-  const { fs } = ctx.fb;
+// 페이지 문서 + 배경 조각 저장 — 한 묶음(batch)으로 만들고 기다리지 않음
+// (렌더링과 업로드가 동시에 진행되어 가져오기가 훨씬 빨라짐)
+export function writePdfPage(nbId, order, pg) {
+  const { fs, db } = ctx.fb;
   const pRef = fs.doc(pageCol());
-  await fs.setDoc(pRef, {
+  const batch = fs.writeBatch(db);
+  batch.set(pRef, {
     nb: nbId, order, template: "blank", w: pg.w, h: pg.h,
     hasBg: true, text: pg.text || "", strokes: "[]", objects: "[]",
     updatedAt: fs.serverTimestamp(),
   });
   for (let c = 0; c * CHUNK < pg.dataUrl.length; c++) {
-    await fs.setDoc(fs.doc(fs.collection(pRef, "bg"), String(c)), {
+    batch.set(fs.doc(fs.collection(pRef, "bg"), String(c)), {
       i: c, total: Math.ceil(pg.dataUrl.length / CHUNK),
       data: pg.dataUrl.slice(c * CHUNK, (c + 1) * CHUNK),
     });
   }
-  return pRef.id;
+  return { id: pRef.id, done: batch.commit() };
 }
 
 async function importPdf(file) {
@@ -594,19 +674,27 @@ async function importPdf(file) {
     const title = file.name.replace(/\.pdf$/i, "");
     let nbRef = null;
     let cover = null;
+    const pending = []; // 업로드는 뒤에서 병렬 진행
     const n = await renderPdfPages(file, async (pg) => {
       if (!nbRef) {
         nbRef = fs.doc(nbCol());
-        await fs.setDoc(nbRef, {
+        fs.setDoc(nbRef, {
           title, color: "#475569", template: "blank", pageCount: pg.n,
           folder: currentFolder?.id || null,
           createdAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp(),
         });
       }
       if (pg.i === 1) cover = await makeCover(pg.dataUrl); // 첫 페이지 = 표지
-      progress(true, "PDF 가져오는 중…", `${pg.i} / ${pg.n} 페이지`, (pg.i - 1) / pg.n);
-      await writePdfPage(nbRef.id, pg.i - 1, pg);
+      progress(true, "PDF 변환 중…", `${pg.i} / ${pg.n} 페이지`, (pg.i - 1) / pg.n * 0.7);
+      pending.push(writePdfPage(nbRef.id, pg.i - 1, pg).done);
     });
+    // 남은 업로드 마무리 (진행률 표시)
+    let doneCount = 0;
+    pending.forEach((pr) => pr.then(() => {
+      doneCount++;
+      progress(true, "클라우드에 업로드 중…", `${doneCount} / ${pending.length} 페이지`, 0.7 + doneCount / pending.length * 0.3);
+    }));
+    await Promise.all(pending);
     if (cover && nbRef) await fs.updateDoc(nbRef, { cover });
     progress(false);
     toast(`"${title}" 가져오기 완료 (${n}쪽)`);
@@ -674,6 +762,10 @@ function bindEvents() {
   $("nbmenu-move").addEventListener("click", () => {
     $("modal-nbmenu").classList.add("hidden");
     if (menuTarget) openMoveModal(menuTarget);
+  });
+  $("nbmenu-duplicate").addEventListener("click", () => {
+    $("modal-nbmenu").classList.add("hidden");
+    if (menuTarget) duplicateNotebook(menuTarget);
   });
   $("move-cancel").addEventListener("click", () => $("modal-move").classList.add("hidden"));
   $("foldermenu-cancel").addEventListener("click", () => $("modal-foldermenu").classList.add("hidden"));
@@ -744,11 +836,12 @@ async function main() {
         doc: (_c, id) => ({ id: id || "demo-p" + (++seq) }),
         getDocs: async () => ({ docs: [], empty: true }),
         setDoc: async () => {}, updateDoc: async () => {}, deleteDoc: async () => {},
+        writeBatch: () => ({ set: () => {}, commit: async () => {} }),
         serverTimestamp: () => Date.now(),
       },
     };
     showScreen("shelf");
-    window.__app = { ctx, renderShelf, get cardDrag() { return cardDrag; } }; // 데모 자동 테스트용
+    window.__app = { ctx, renderShelf, renderFolderTabs, get cardDrag() { return cardDrag; } }; // 데모 자동 테스트용
     openNotebook({ id: "demo-nb", title: "데모 노트북", color: "#4a6cf7", template: "lines", pageCount: 1 });
     return;
   }
