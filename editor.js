@@ -52,6 +52,10 @@ export function initEditor() {
   bindAi();
   bindAudio();
   loadPrefs();
+  // 데모 모드에서 자동 테스트용 내부 상태 노출
+  if (location.hash === "#demo") {
+    window.__dbg = { E, curPage, get gesture() { return gesture; } };
+  }
 }
 
 // ---------- 도구 설정 기억 ----------
@@ -437,6 +441,7 @@ function bindPointer() {
 
     // 두 번째 손가락 → 핀치로 전환 (진행 중이던 손가락 획은 취소)
     if (pointers.size === 2) {
+      if (gesture?.holdTimer) clearInterval(gesture.holdTimer);
       if (gesture && (gesture.mode === "draw" || gesture.mode === "shape") && gesture.pointerType === "touch") {
         clearLive();
       }
@@ -467,6 +472,7 @@ function bindPointer() {
     } else if (E.tool === "pen" || E.tool === "highlighter") {
       gesture = {
         mode: "draw", pointerType: e.pointerType,
+        lastMove: Date.now(),
         stroke: {
           t: E.tool === "pen" ? "pen" : "hl",
           ...(E.tool === "pen" ? { ps: E.penStyle } : {}),
@@ -474,6 +480,8 @@ function bindPointer() {
           p: [[round1(pt.x), round1(pt.y), round2(e.pressure || 0.5)]],
         },
       };
+      // 그리다 잠깐 멈추면 도형으로 보정 (직선/원/사각형)
+      gesture.holdTimer = setInterval(checkHoldShape, 130);
     } else if (E.tool === "lasso") {
       if (E.lasso && ptInRect(pt, E.lasso.bbox, 8)) {
         // 선택 영역 안을 누르면 이동 시작
@@ -511,13 +519,16 @@ function bindPointer() {
       // coalesced events로 더 부드러운 곡선 (지원 안 하거나 비어 있으면 원본 이벤트 사용)
       let evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
       if (!evs || evs.length === 0) evs = [e];
+      let moved = false;
       for (const ce of evs) {
         const cp = screenToPage(ce.clientX, ce.clientY);
         const pts = gesture.stroke.p;
         const last = pts[pts.length - 1];
         if (Math.hypot(cp.x - last[0], cp.y - last[1]) < 0.7) continue;
         pts.push([round1(cp.x), round1(cp.y), round2(ce.pressure || 0.5)]);
+        moved = true;
       }
+      if (moved) gesture.lastMove = Date.now();
       renderLiveStroke(gesture.stroke);
     } else if (gesture.mode === "erase") {
       eraseAt(pt);
@@ -560,6 +571,7 @@ function bindPointer() {
     }
     if (!gesture) return;
     const g = gesture; gesture = null;
+    if (g.holdTimer) clearInterval(g.holdTimer);
 
     if (g.mode === "draw") {
       if (g.stroke.p.length > 0) {
@@ -761,11 +773,68 @@ function segDist(p, a, b) {
   return Math.hypot(p.x - (a[0] + t * dx), p.y - (a[1] + t * dy));
 }
 
+// ---------- 그리다 멈추면 도형 보정 (직선/원/사각형) ----------
+function recognizeShape(pts) {
+  const n = pts.length;
+  if (n < 8) return null;
+  let len = 0, L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+  for (let i = 0; i < n; i++) {
+    if (i) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    L = Math.min(L, pts[i][0]); T = Math.min(T, pts[i][1]);
+    R = Math.max(R, pts[i][0]); B = Math.max(B, pts[i][1]);
+  }
+  const p0 = pts[0], pn = pts[n - 1];
+  const chord = Math.hypot(pn[0] - p0[0], pn[1] - p0[1]);
+
+  // 직선: 양 끝을 이은 선에서 거의 벗어나지 않음
+  if (chord > 40 && len < chord * 1.25) {
+    let maxD = 0;
+    for (const q of pts) maxD = Math.max(maxD, segDist({ x: q[0], y: q[1] }, p0, pn));
+    if (maxD < Math.max(5, chord * 0.05)) {
+      return { sh: "line", x0: p0[0], y0: p0[1], x1: pn[0], y1: pn[1] };
+    }
+  }
+
+  // 닫힌 도형(원/사각형): 시작·끝이 가깝고 충분히 큼
+  const rx = (R - L) / 2, ry = (B - T) / 2;
+  if (chord < len * 0.3 && len > 80 && rx > 14 && ry > 14) {
+    const cx = (L + R) / 2, cy = (T + B) / 2;
+    let eSum = 0, rSum = 0;
+    for (const [x, y] of pts) {
+      eSum += Math.abs(Math.hypot((x - cx) / rx, (y - cy) / ry) - 1); // 타원 궤도에서 벗어난 정도
+      rSum += Math.min(Math.abs(x - L), Math.abs(x - R), Math.abs(y - T), Math.abs(y - B)); // 테두리에서 벗어난 정도
+    }
+    const eErr = eSum / n;
+    const rErr = rSum / n / Math.min(rx, ry);
+    if (eErr < 0.16 && eErr <= rErr * 1.1) return { sh: "ellipse", x0: L, y0: T, x1: R, y1: B };
+    if (rErr < 0.12) return { sh: "rect", x0: L, y0: T, x1: R, y1: B };
+  }
+  return null;
+}
+
+function checkHoldShape() {
+  const g = gesture;
+  if (!g || g.mode !== "draw" || g.stroke.t !== "pen") return;
+  if (Date.now() - g.lastMove < 600) return; // 0.6초 이상 멈춰야
+  const rec = recognizeShape(g.stroke.p);
+  if (!rec) return;
+  clearInterval(g.holdTimer);
+  // 도형 제스처로 전환 — 계속 끌면 크기·끝점 조절
+  gesture = {
+    mode: "shape", x0: rec.x0, y0: rec.y0, x1: rec.x1, y1: rec.y1,
+    shapeType: rec.sh, pointerType: g.pointerType,
+  };
+  clearLive();
+  drawStroke(liveG, shapeFromGesture(gesture));
+  if (navigator.vibrate) navigator.vibrate(15);
+}
+
 // ---------- 도형 ----------
 function shapeFromGesture(g = gesture) {
   let { x0, y0, x1, y1 } = g;
+  const sh = g.shapeType || E.shape; // 도형 도구 또는 자동 보정으로 인식된 도형
   // 직선: 수평/수직/45° 근처면 스냅
-  if (E.shape === "line" || E.shape === "arrow") {
+  if (sh === "line" || sh === "arrow") {
     const a = Math.atan2(y1 - y0, x1 - x0);
     const snap = Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
     if (Math.abs(a - snap) < 0.09) {
@@ -775,7 +844,7 @@ function shapeFromGesture(g = gesture) {
     }
   }
   return {
-    t: "shape", sh: E.shape, color: E.color, s: E.size,
+    t: "shape", sh, color: E.color, s: E.size,
     x0: round1(x0), y0: round1(y0), x1: round1(x1), y1: round1(y1),
   };
 }

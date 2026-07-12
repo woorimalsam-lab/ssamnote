@@ -14,6 +14,7 @@ export const ctx = {
   fb: null,       // { auth, db, authMod, fs }
   user: null,
   notebooks: [],
+  folders: [],
 };
 
 // ---------- 토스트 ----------
@@ -57,6 +58,7 @@ async function initFirebase() {
       $("shelf-user").textContent = user.email || "";
       showScreen("shelf");
       watchNotebooks();
+      watchFolders();
     } else {
       showScreen("login");
     }
@@ -120,6 +122,8 @@ const FEATURES = [
   { icon: "✍️", name: "손글씨 → 텍스트", desc: "필기 화면 상단 ✨ 메뉴에서:\n\n• '선택한 필기를 텍스트로': 올가미로 둘러 선택한 손글씨를 인식\n• '페이지 필기를 텍스트로': 페이지 전체 인식\n\n결과를 복사하거나, 텍스트 상자로 추가하거나, 손글씨와 교체할 수 있어요. 설정 없이 무료로 쓸 수 있어요." },
   { icon: "✨", name: "AI 요약·퀴즈", desc: "필기 화면 상단 ✨ 메뉴에서 페이지 내용을 AI가 도와줘요.\n\n• AI 요약·정리: 핵심 개념 정리\n• AI 퀴즈 만들기: 학생용 확인 문제 5개(정답·해설 포함)\n• AI 글 다듬기: 맞춤법·문장 교정\n\n처음 한 번만 무료 Gemini API 키를 넣으면 돼요 (안내 창이 알려줘요)." },
   { icon: "📑", name: "페이지 썸네일", desc: "필기 화면 상단의 '1 / 5' 페이지 표시를 누르면 모든 페이지의 미리보기가 격자로 떠요.\n\n원하는 페이지를 누르면 바로 이동! ＋ 버튼으로 페이지를 추가하고, ⋮ 메뉴에서 백지·줄노트·모눈 템플릿을 골라 넣을 수 있어요." },
+  { icon: "📐", name: "도형 자동 보정", desc: "펜으로 선이나 도형을 그린 뒤, 펜을 떼지 말고 잠깐(0.6초) 멈춰 보세요.\n\n• 밑줄·직선 → 곧은 직선으로\n• 동그라미 → 매끈한 원으로\n• 네모 → 반듯한 사각형으로 바뀌어요\n\n바뀐 상태에서 계속 끌면 크기를 조절할 수 있어요. 그냥 그리고 바로 떼면 손글씨 그대로 남아요." },
+  { icon: "📁", name: "폴더 정리", desc: "책장에서 노트북을 폴더로 정리할 수 있어요.\n\n• 노트북 목록 위 '＋ 새 폴더'로 폴더 만들기\n• 노트북의 ⋮ → '폴더로 이동'\n• 폴더 탭을 누르면 그 폴더만 보기\n• 선택된 폴더 탭을 한 번 더 누르면 이름 바꾸기·삭제\n\n폴더를 보면서 새 노트북을 만들면 자동으로 그 폴더에 들어가요." },
 ];
 
 function renderFeatureStrip() {
@@ -143,13 +147,15 @@ let shelfFilter = "";
 function renderShelf() {
   const grid = $("shelf-grid");
   grid.innerHTML = "";
-  const list = shelfFilter
-    ? ctx.notebooks.filter((nb) => (nb.title || "").toLowerCase().includes(shelfFilter))
-    : ctx.notebooks;
+  let list = ctx.notebooks;
+  if (currentFolder) list = list.filter((nb) => nb.folder === currentFolder.id);
+  if (shelfFilter) list = list.filter((nb) => (nb.title || "").toLowerCase().includes(shelfFilter));
   $("shelf-empty").classList.toggle("hidden", list.length > 0);
   $("shelf-empty").querySelector("p").innerHTML = shelfFilter
     ? "검색 결과가 없어요."
-    : "아직 노트북이 없어요.<br/>아래 버튼으로 첫 노트북을 만들어 보세요!";
+    : currentFolder
+      ? "이 폴더는 비어 있어요.<br/>노트북의 ⋮ → '폴더로 이동'으로 옮겨 보세요."
+      : "아직 노트북이 없어요.<br/>아래 버튼으로 첫 노트북을 만들어 보세요!";
 
   for (const nb of list) {
     // 굿노트풍 표지: 색 표지 + 제본 홈 + 흰 라벨
@@ -179,11 +185,27 @@ function renderShelf() {
   }
 }
 
-// ---------- 노트북 메뉴 / 이름 바꾸기 ----------
+// ---------- 이름 입력 모달 (노트북/폴더 공용) ----------
 let menuTarget = null;
-let renameTarget = null;
-let renameCallback = null;
+let promptCb = null;
 
+function openTextPrompt(title, initial, cb) {
+  $("rename-title").textContent = title;
+  $("rename-input").value = initial || "";
+  promptCb = cb;
+  $("modal-rename").classList.remove("hidden");
+  setTimeout(() => { $("rename-input").focus(); $("rename-input").select(); }, 60);
+}
+
+function submitTextPrompt() {
+  const v = $("rename-input").value.trim();
+  $("modal-rename").classList.add("hidden");
+  const cb = promptCb;
+  promptCb = null;
+  if (v && cb) cb(v);
+}
+
+// ---------- 노트북 메뉴 ----------
 function notebookMenu(nb) {
   menuTarget = nb;
   $("nbmenu-title").textContent = nb.title || "제목 없음";
@@ -191,29 +213,102 @@ function notebookMenu(nb) {
 }
 
 export function openRenameNotebook(nb, cb = null) {
-  renameTarget = nb;
-  renameCallback = cb;
-  $("rename-input").value = nb.title || "";
-  $("modal-rename").classList.remove("hidden");
-  setTimeout(() => { $("rename-input").focus(); $("rename-input").select(); }, 60);
+  openTextPrompt("이름 바꾸기", nb.title, async (t) => {
+    if (t === nb.title) return;
+    try {
+      const { fs, db } = ctx.fb;
+      await fs.updateDoc(fs.doc(db, "users", ctx.user.uid, "notebooks", nb.id), {
+        title: t, updatedAt: fs.serverTimestamp(),
+      });
+      nb.title = t;
+      if (cb) cb(t);
+      toast("이름을 바꿨어요");
+    } catch (e) {
+      console.error(e);
+      toast("이름 변경에 실패했어요: " + (e.message || e));
+    }
+  });
 }
 
-async function saveRename() {
-  const t = $("rename-input").value.trim();
-  $("modal-rename").classList.add("hidden");
-  if (!renameTarget || !t || t === renameTarget.title) return;
-  try {
-    const { fs, db } = ctx.fb;
-    await fs.updateDoc(fs.doc(db, "users", ctx.user.uid, "notebooks", renameTarget.id), {
-      title: t, updatedAt: fs.serverTimestamp(),
+// ---------- 폴더 ----------
+let currentFolder = null; // null = 전체
+let unsubFolders = null;
+let folderMenuTarget = null;
+
+function folderCol() {
+  const { fs, db } = ctx.fb;
+  return fs.collection(db, "users", ctx.user.uid, "folders");
+}
+
+function watchFolders() {
+  const { fs } = ctx.fb;
+  if (unsubFolders) unsubFolders();
+  const q = fs.query(folderCol(), fs.orderBy("createdAt", "asc"));
+  unsubFolders = fs.onSnapshot(q, (snap) => {
+    ctx.folders = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (currentFolder && !ctx.folders.some((f) => f.id === currentFolder.id)) currentFolder = null;
+    renderFolderTabs();
+    renderShelf();
+  }, (e) => console.error(e));
+}
+
+function renderFolderTabs() {
+  const wrap = $("folder-tabs");
+  wrap.innerHTML = "";
+  const mkTab = (label, selected, onClick) => {
+    const b = document.createElement("button");
+    b.className = "folder-tab" + (selected ? " selected" : "");
+    b.textContent = label;
+    b.addEventListener("click", onClick);
+    wrap.appendChild(b);
+    return b;
+  };
+  mkTab("전체", !currentFolder, () => { currentFolder = null; renderFolderTabs(); renderShelf(); });
+  for (const f of ctx.folders || []) {
+    mkTab(`📁 ${f.name}`, currentFolder?.id === f.id, () => {
+      if (currentFolder?.id === f.id) {
+        // 선택된 폴더를 다시 누르면 폴더 메뉴
+        folderMenuTarget = f;
+        $("foldermenu-title").textContent = `📁 ${f.name}`;
+        $("modal-foldermenu").classList.remove("hidden");
+      } else {
+        currentFolder = f;
+        renderFolderTabs(); renderShelf();
+      }
     });
-    renameTarget.title = t;
-    if (renameCallback) renameCallback(t);
-    toast("이름을 바꿨어요");
-  } catch (e) {
-    console.error(e);
-    toast("이름 변경에 실패했어요: " + (e.message || e));
   }
+  mkTab("＋ 새 폴더", false, () => {
+    openTextPrompt("새 폴더", "", async (name) => {
+      try {
+        const { fs } = ctx.fb;
+        await fs.setDoc(fs.doc(folderCol()), { name, createdAt: fs.serverTimestamp() });
+        toast(`"${name}" 폴더를 만들었어요`);
+      } catch (e) { console.error(e); toast("폴더 만들기에 실패했어요: " + (e.message || e)); }
+    });
+  });
+}
+
+function openMoveModal(nb) {
+  const list = $("move-list");
+  list.innerHTML = "";
+  const mkItem = (label, folderId) => {
+    const b = document.createElement("button");
+    b.className = "sheet-btn" + ((nb.folder || null) === folderId ? " current-folder" : "");
+    b.textContent = label;
+    b.addEventListener("click", async () => {
+      $("modal-move").classList.add("hidden");
+      try {
+        const { fs, db } = ctx.fb;
+        await fs.updateDoc(fs.doc(db, "users", ctx.user.uid, "notebooks", nb.id), { folder: folderId });
+        toast(folderId ? "폴더로 옮겼어요" : "폴더에서 꺼냈어요");
+      } catch (e) { console.error(e); toast("이동에 실패했어요: " + (e.message || e)); }
+    });
+    list.appendChild(b);
+  };
+  mkItem("📂 폴더 없음", null);
+  for (const f of ctx.folders || []) mkItem(`📁 ${f.name}`, f.id);
+  $("move-title").textContent = `"${nb.title}" 이동`;
+  $("modal-move").classList.remove("hidden");
 }
 
 async function deleteNotebook(nb) {
@@ -250,6 +345,7 @@ async function createNotebook() {
   const nbRef = fs.doc(nbCol());
   await fs.setDoc(nbRef, {
     title, color, template, pageCount: 1,
+    folder: currentFolder?.id || null, // 폴더를 보고 있으면 그 폴더에 생성
     createdAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp(),
   });
   // 첫 페이지
@@ -343,6 +439,7 @@ async function importPdf(file) {
         nbRef = fs.doc(nbCol());
         await fs.setDoc(nbRef, {
           title, color: "#475569", template: "blank", pageCount: pg.n,
+          folder: currentFolder?.id || null,
           createdAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp(),
         });
       }
@@ -404,11 +501,46 @@ function bindEvents() {
       toast("삭제에 실패했어요: " + (e.message || e));
     }
   });
-  $("rename-cancel").addEventListener("click", () => $("modal-rename").classList.add("hidden"));
-  $("rename-save").addEventListener("click", saveRename);
+  $("rename-cancel").addEventListener("click", () => { promptCb = null; $("modal-rename").classList.add("hidden"); });
+  $("rename-save").addEventListener("click", submitTextPrompt);
   $("rename-input").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") saveRename();
-    if (e.key === "Escape") $("modal-rename").classList.add("hidden");
+    if (e.key === "Enter") submitTextPrompt();
+    if (e.key === "Escape") { promptCb = null; $("modal-rename").classList.add("hidden"); }
+  });
+
+  // 폴더
+  $("nbmenu-move").addEventListener("click", () => {
+    $("modal-nbmenu").classList.add("hidden");
+    if (menuTarget) openMoveModal(menuTarget);
+  });
+  $("move-cancel").addEventListener("click", () => $("modal-move").classList.add("hidden"));
+  $("foldermenu-cancel").addEventListener("click", () => $("modal-foldermenu").classList.add("hidden"));
+  $("foldermenu-rename").addEventListener("click", () => {
+    $("modal-foldermenu").classList.add("hidden");
+    const f = folderMenuTarget;
+    if (!f) return;
+    openTextPrompt("폴더 이름 바꾸기", f.name, async (name) => {
+      try {
+        const { fs } = ctx.fb;
+        await fs.updateDoc(fs.doc(folderCol(), f.id), { name });
+        toast("폴더 이름을 바꿨어요");
+      } catch (e) { console.error(e); toast("이름 변경에 실패했어요: " + (e.message || e)); }
+    });
+  });
+  $("foldermenu-delete").addEventListener("click", async () => {
+    $("modal-foldermenu").classList.add("hidden");
+    const f = folderMenuTarget;
+    if (!f) return;
+    if (!confirm(`"${f.name}" 폴더를 삭제할까요?\n폴더 안의 노트북은 삭제되지 않고 '전체'로 이동해요.`)) return;
+    try {
+      const { fs, db } = ctx.fb;
+      for (const nb of ctx.notebooks.filter((n) => n.folder === f.id)) {
+        await fs.updateDoc(fs.doc(db, "users", ctx.user.uid, "notebooks", nb.id), { folder: null });
+      }
+      await fs.deleteDoc(fs.doc(folderCol(), f.id));
+      if (currentFolder?.id === f.id) currentFolder = null;
+      toast("폴더를 삭제했어요");
+    } catch (e) { console.error(e); toast("폴더 삭제에 실패했어요: " + (e.message || e)); }
   });
 
   $("shelf-search").addEventListener("input", (e) => {

@@ -42,6 +42,10 @@
       <div id="feature-strip" class="feature-strip">
         <!-- app.js가 렌더링 -->
       </div>
+      <!-- 폴더 탭 -->
+      <div id="folder-tabs" class="folder-tabs">
+        <!-- app.js가 렌더링 -->
+      </div>
       <div id="shelf-grid" class="shelf-grid">
         <!-- 노트북 카드가 여기 렌더링됩니다 -->
       </div>
@@ -107,23 +111,43 @@
     <div class="modal modal-sheet">
       <h2 id="nbmenu-title">노트북</h2>
       <button id="nbmenu-rename" class="sheet-btn">✏️ 이름 바꾸기</button>
+      <button id="nbmenu-move" class="sheet-btn">📁 폴더로 이동</button>
       <button id="nbmenu-delete" class="sheet-btn danger">🗑 노트북 삭제</button>
       <button id="nbmenu-cancel" class="sheet-btn">취소</button>
     </div>
   </div>
 
-  <!-- ===================== 이름 바꾸기 모달 ===================== -->
+  <!-- ===================== 이름 입력 모달 (노트북/폴더 공용) ===================== -->
   <div id="modal-rename" class="modal-backdrop hidden">
     <div class="modal">
-      <h2>이름 바꾸기</h2>
+      <h2 id="rename-title">이름 바꾸기</h2>
       <label class="field">
-        <span>노트북 이름</span>
+        <span>이름</span>
         <input type="text" id="rename-input" maxlength="40" />
       </label>
       <div class="modal-actions">
         <button id="rename-cancel" class="btn btn-ghost">취소</button>
         <button id="rename-save" class="btn btn-primary">저장</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===================== 폴더 메뉴 모달 ===================== -->
+  <div id="modal-foldermenu" class="modal-backdrop hidden">
+    <div class="modal modal-sheet">
+      <h2 id="foldermenu-title">폴더</h2>
+      <button id="foldermenu-rename" class="sheet-btn">✏️ 폴더 이름 바꾸기</button>
+      <button id="foldermenu-delete" class="sheet-btn danger">🗑 폴더 삭제 (노트북은 유지)</button>
+      <button id="foldermenu-cancel" class="sheet-btn">취소</button>
+    </div>
+  </div>
+
+  <!-- ===================== 폴더로 이동 모달 ===================== -->
+  <div id="modal-move" class="modal-backdrop hidden">
+    <div class="modal modal-sheet">
+      <h2 id="move-title">폴더로 이동</h2>
+      <div id="move-list" class="move-list"></div>
+      <button id="move-cancel" class="sheet-btn">취소</button>
     </div>
   </div>
 
