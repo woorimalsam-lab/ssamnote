@@ -229,6 +229,27 @@ html, body {
   position: relative; z-index: 1;
 }
 .nb-card .nb-meta { font-size: 12px; opacity: .92; font-weight: 500; position: relative; z-index: 1; }
+
+/* PDF 노트북: 첫 페이지가 표지로 */
+.nb-cover-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; object-position: top;
+}
+.nb-card.has-cover { background: #fff; }
+.nb-card.has-cover::before { background: rgba(0, 0, 0, .14); box-shadow: none; }
+.nb-card.has-cover::after { background: none; }
+.nb-card.has-cover .nb-label {
+  position: absolute; left: 8%; right: 8%; bottom: 10px; width: auto;
+  background: rgba(255, 255, 255, .92);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  font-size: 13.5px; padding: 9px 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .18);
+}
+.nb-card.has-cover .nb-meta {
+  position: absolute; top: 8px; left: 8px;
+  background: rgba(14, 27, 44, .55); color: #fff;
+  padding: 3px 10px; border-radius: 999px;
+}
 .nb-card .nb-more {
   position: absolute; top: 8px; right: 8px; width: 34px; height: 34px;
   border: none; border-radius: 10px;
@@ -332,24 +353,39 @@ html, body {
     #e2e7f0;
 }
 
+/* 상단 바: 굿노트풍 진한 파랑 + 흰 아이콘, 도구가 중앙에 */
 .editor-top {
-  display: flex; align-items: center; gap: 6px;
-  background: var(--glass);
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--hairline);
+  display: flex; align-items: center; gap: 4px;
+  background: linear-gradient(180deg, #2b5cd9, #2150c4);
+  padding: 6px 10px;
+  box-shadow: 0 2px 10px rgba(20, 45, 110, .25);
   z-index: 10;
 }
+.editor-top .icon-btn { color: #fff; }
+.editor-top .icon-btn:hover { background: rgba(255, 255, 255, .14); }
+.editor-top .icon-btn:active { background: rgba(255, 255, 255, .24); }
 .editor-title {
-  font-weight: 700; font-size: 15px; max-width: 26vw;
+  font-weight: 700; font-size: 15px; max-width: 18vw; color: #fff;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   cursor: pointer; padding: 7px 10px; border-radius: 10px;
   transition: background .12s;
 }
-.editor-title:hover { background: rgba(14, 27, 44, .05); }
-.save-status { font-size: 12px; color: var(--text-dim); margin-left: 2px; white-space: nowrap; }
+.editor-title:hover { background: rgba(255, 255, 255, .14); }
+.save-status { font-size: 12px; color: rgba(255, 255, 255, .75); margin-left: 2px; white-space: nowrap; }
 .editor-top-right { margin-left: auto; display: flex; align-items: center; gap: 2px; }
 .divider-v { width: 1px; height: 22px; background: var(--hairline); margin: 0 6px; }
+
+.top-tools {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 2px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.top-tools::-webkit-scrollbar { display: none; }
+.top-tools .tool-btn { color: #fff; }
+.top-tools .tool-btn:hover { background: rgba(255, 255, 255, .14); }
+.top-tools .tool-btn.selected {
+  background: #fff; color: var(--text);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .22);
+}
 .page-indicator {
   border: none; background: var(--primary-soft); color: var(--primary); font-weight: 700;
   font-family: inherit;
@@ -384,6 +420,19 @@ html, body {
   box-shadow: inset 0 0 0 2px var(--primary);
 }
 #tool-text { font-weight: 800; font-size: 20px; }
+
+/* 굵기 프리셋 점 (얇게/중간/굵게) */
+.size-dot {
+  width: 40px; height: 40px; border: none; border-radius: 12px; background: transparent;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  transition: background .12s, box-shadow .12s;
+  touch-action: manipulation;
+}
+.size-dot span { display: block; border-radius: 50%; background: var(--text); }
+.size-dot:hover { background: rgba(14, 27, 44, .05); }
+.size-dot.selected { background: var(--primary-soft); box-shadow: inset 0 0 0 2px var(--primary); }
+
+.page-nav-group { margin-left: auto; }
 
 .pen-style-btn {
   border: 1.5px solid var(--border); border-radius: 999px; background: #fff;
@@ -502,7 +551,7 @@ html, body {
 /* ---------- 녹음 ---------- */
 .rec-timer {
   display: inline-flex; align-items: center;
-  background: rgba(229, 72, 77, .12); color: var(--danger);
+  background: #fff; color: var(--danger);
   font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums;
   padding: 6px 12px; border-radius: 999px; white-space: nowrap;
   animation: rec-pulse 1.6s ease-in-out infinite;

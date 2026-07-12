@@ -158,10 +158,19 @@ function renderShelf() {
       : "아직 노트북이 없어요.<br/>아래 버튼으로 첫 노트북을 만들어 보세요!";
 
   for (const nb of list) {
-    // 굿노트풍 표지: 색 표지 + 제본 홈 + 흰 라벨
+    // 굿노트풍 표지: PDF는 첫 페이지 미리보기, 일반 노트는 색 표지 + 흰 라벨
     const card = document.createElement("div");
     card.className = "nb-card";
     card.style.setProperty("--c", nb.color || "#2f6bff");
+
+    if (nb.cover) {
+      card.classList.add("has-cover");
+      const img = document.createElement("img");
+      img.className = "nb-cover-img";
+      img.src = nb.cover;
+      img.alt = "";
+      card.appendChild(img);
+    }
 
     const label = document.createElement("div");
     label.className = "nb-label";
@@ -372,6 +381,25 @@ function progress(show, title = "", text = "", ratio = 0) {
   }
 }
 
+// PDF/이미지 첫 페이지로 노트북 표지 만들기 (작은 JPEG)
+export function makeCover(dataUrl) {
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = 240;
+      const h = Math.round(w * img.naturalHeight / img.naturalWidth);
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      const g = c.getContext("2d");
+      g.fillStyle = "#fff"; g.fillRect(0, 0, w, h);
+      g.drawImage(img, 0, 0, w, h);
+      res(c.toDataURL("image/jpeg", 0.72));
+    };
+    img.onerror = () => res(null);
+    img.src = dataUrl;
+  });
+}
+
 // PDF를 페이지 단위로 렌더링(배경 이미지 + 텍스트 추출) — 새 노트/삽입 공용
 export async function renderPdfPages(file, onPage) {
   const pdfjs = await import(PDF_JS);
@@ -434,6 +462,7 @@ async function importPdf(file) {
     const { fs } = ctx.fb;
     const title = file.name.replace(/\.pdf$/i, "");
     let nbRef = null;
+    let cover = null;
     const n = await renderPdfPages(file, async (pg) => {
       if (!nbRef) {
         nbRef = fs.doc(nbCol());
@@ -443,9 +472,11 @@ async function importPdf(file) {
           createdAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp(),
         });
       }
+      if (pg.i === 1) cover = await makeCover(pg.dataUrl); // 첫 페이지 = 표지
       progress(true, "PDF 가져오는 중…", `${pg.i} / ${pg.n} 페이지`, (pg.i - 1) / pg.n);
       await writePdfPage(nbRef.id, pg.i - 1, pg);
     });
+    if (cover && nbRef) await fs.updateDoc(nbRef, { cover });
     progress(false);
     toast(`"${title}" 가져오기 완료 (${n}쪽)`);
   } catch (e) {

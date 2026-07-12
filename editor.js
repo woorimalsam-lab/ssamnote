@@ -5,7 +5,7 @@
 //  - 페이지 데이터는 Firestore users/{uid}/pages 에 자동 저장
 // ============================================================
 
-import { ctx, toast, showScreen, pageCol, openRenameNotebook, renderPdfPages, writePdfPage } from "./app.js";
+import { ctx, toast, showScreen, pageCol, openRenameNotebook, renderPdfPages, writePdfPage, makeCover } from "./app.js";
 
 const $ = (id) => document.getElementById(id);
 const RES = 2; // 캔버스 해상도 배율 (태블릿 메모리 고려)
@@ -58,6 +58,11 @@ export function initEditor() {
   }
 }
 
+function syncSizeDots() {
+  document.querySelectorAll(".size-dot").forEach((x) =>
+    x.classList.toggle("selected", Number(x.dataset.s) === E.size));
+}
+
 // ---------- 도구 설정 기억 ----------
 const PREFS_KEY = "ssamnote_prefs";
 
@@ -78,6 +83,7 @@ function loadPrefs() {
     E.size = p.size;
     $("size-slider").value = p.size;
     $("size-label").textContent = p.size;
+    syncSizeDots();
   }
   if (p.penStyle === "ball" || p.penStyle === "fountain") {
     E.penStyle = p.penStyle;
@@ -254,6 +260,15 @@ async function loadPageBg(p) {
       img.onerror = () => { p.bgLoaded = true; res(); };
       img.src = dataUrl;
     });
+    // 예전에 가져온 PDF 노트북: 첫 페이지로 표지를 소급 생성
+    if (E.nb && !E.nb.cover && E.pages[0] === p && p.bgImg) {
+      makeCover(dataUrl).then((cover) => {
+        if (!cover || !E.nb) return;
+        E.nb.cover = cover;
+        const { fs: f, db } = ctx.fb;
+        f.updateDoc(f.doc(db, "users", ctx.user.uid, "notebooks", E.nb.id), { cover }).catch(() => {});
+      });
+    }
   } catch (e) {
     console.error("배경 불러오기 실패", e);
     p.bgLoaded = true;
@@ -1530,8 +1545,19 @@ function bindToolbar() {
   $("size-slider").addEventListener("input", (e) => {
     E.size = Number(e.target.value);
     $("size-label").textContent = E.size;
+    syncSizeDots();
     savePrefs();
   });
+  // 굵기 프리셋 (얇게/중간/굵게)
+  $("size-presets").addEventListener("click", (e) => {
+    const b = e.target.closest("button.size-dot"); if (!b) return;
+    E.size = Number(b.dataset.s);
+    $("size-slider").value = E.size;
+    $("size-label").textContent = E.size;
+    syncSizeDots();
+    savePrefs();
+  });
+  syncSizeDots();
   $("finger-draw").addEventListener("change", (e) => { E.fingerDraw = e.target.checked; savePrefs(); });
   $("scribble-erase").addEventListener("change", (e) => { E.scribble = e.target.checked; savePrefs(); });
 

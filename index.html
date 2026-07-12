@@ -162,39 +162,36 @@
 
   <!-- ===================== 편집기(필기) 화면 ===================== -->
   <section id="screen-editor" class="screen hidden">
-    <!-- 상단 바 -->
+    <!-- 상단 바 (진한 파랑): 도구 중심 -->
     <header class="editor-top">
       <button id="btn-back" class="icon-btn" title="책장으로">←</button>
       <span id="editor-title" class="editor-title">노트북</span>
       <span id="save-status" class="save-status">저장됨</span>
-      <button id="btn-record" class="icon-btn" title="녹음 시작/정지">🎙</button>
-      <button id="btn-audio" class="icon-btn" title="녹음 목록">🎧</button>
-      <span id="rec-timer" class="rec-timer hidden">● 0:00</span>
-      <div class="editor-top-right">
-        <button id="btn-undo" class="icon-btn" title="실행 취소">↩</button>
-        <button id="btn-redo" class="icon-btn" title="다시 실행">↪</button>
-        <span class="divider-v"></span>
-        <button id="btn-page-prev" class="icon-btn" title="이전 페이지">‹</button>
-        <button id="btn-page-indicator" class="page-indicator" title="페이지 목록">1 / 1</button>
-        <button id="btn-page-next" class="icon-btn" title="다음 페이지">›</button>
-        <button id="btn-page-add" class="icon-btn" title="페이지 추가">＋</button>
-        <button id="btn-ai" class="icon-btn" title="AI 도구">✨</button>
-        <button id="btn-page-menu" class="icon-btn" title="페이지 메뉴">⋮</button>
-      </div>
-    </header>
-
-    <!-- 도구 바 -->
-    <div class="editor-tools">
-      <div class="tool-group">
+      <div class="top-tools">
+        <button id="tool-lasso" class="tool-btn" title="올가미 (둘러서 선택)">⭕</button>
         <button id="tool-pen" class="tool-btn selected" title="펜">🖊</button>
         <button id="tool-highlighter" class="tool-btn" title="형광펜">🖍</button>
         <button id="tool-eraser" class="tool-btn" title="지우개">◻</button>
-        <button id="tool-lasso" class="tool-btn" title="올가미 (둘러서 선택)">⭕</button>
         <button id="tool-shape" class="tool-btn" title="도형">△</button>
         <button id="tool-text" class="tool-btn" title="텍스트">T</button>
         <button id="tool-image" class="tool-btn" title="이미지">🖼</button>
         <button id="tool-select" class="tool-btn" title="선택/이동">☝</button>
         <button id="tool-hand" class="tool-btn" title="손(이동/확대)">✋</button>
+      </div>
+      <div class="editor-top-right">
+        <span id="rec-timer" class="rec-timer hidden">● 0:00</span>
+        <button id="btn-record" class="icon-btn" title="녹음 시작/정지">🎙</button>
+        <button id="btn-audio" class="icon-btn" title="녹음 목록">🎧</button>
+        <button id="btn-ai" class="icon-btn" title="AI 도구">✨</button>
+        <button id="btn-page-menu" class="icon-btn" title="페이지 메뉴">⋮</button>
+      </div>
+    </header>
+
+    <!-- 보조 바 (흰색): 실행취소 + 펜 옵션 + 굵기 + 색 + 페이지 이동 -->
+    <div class="editor-tools">
+      <div class="tool-group">
+        <button id="btn-undo" class="icon-btn" title="실행 취소">↩</button>
+        <button id="btn-redo" class="icon-btn" title="다시 실행">↪</button>
       </div>
       <div class="tool-group" id="pen-options">
         <button data-p="fountain" class="pen-style-btn selected" title="필압에 따라 굵기가 변합니다">만년필</button>
@@ -206,19 +203,23 @@
         <button data-s="rect" class="shape-btn" title="사각형">▭</button>
         <button data-s="ellipse" class="shape-btn" title="원">◯</button>
       </div>
+      <div class="tool-group" id="size-presets">
+        <button data-s="2" class="size-dot" title="얇게"><span style="width:6px;height:6px"></span></button>
+        <button data-s="4" class="size-dot" title="중간"><span style="width:10px;height:10px"></span></button>
+        <button data-s="8" class="size-dot" title="굵게"><span style="width:16px;height:16px"></span></button>
+        <input type="range" id="size-slider" min="1" max="30" value="3" />
+        <span id="size-label">3</span>
+      </div>
       <div class="tool-group">
         <div id="color-row" class="color-picker-row">
           <button data-c="#1a1a1a" class="col selected" style="background:#1a1a1a"></button>
+          <button data-c="#22b8cf" class="col" style="background:#22b8cf"></button>
+          <button data-c="#fcc419" class="col" style="background:#fcc419"></button>
+          <button data-c="#37b24d" class="col" style="background:#37b24d"></button>
+          <button data-c="#f783ac" class="col" style="background:#f783ac"></button>
           <button data-c="#e5484d" class="col" style="background:#e5484d"></button>
-          <button data-c="#2563eb" class="col" style="background:#2563eb"></button>
-          <button data-c="#2f9e6e" class="col" style="background:#2f9e6e"></button>
-          <button data-c="#f59e0b" class="col" style="background:#f59e0b"></button>
           <input type="color" id="color-custom" value="#1a1a1a" title="다른 색" />
         </div>
-      </div>
-      <div class="tool-group size-group">
-        <input type="range" id="size-slider" min="1" max="30" value="3" />
-        <span id="size-label">3</span>
       </div>
       <div class="tool-group">
         <label class="finger-toggle" title="켜면 손가락으로도 필기됩니다">
@@ -227,6 +228,12 @@
         <label class="finger-toggle" title="펜으로 쓱쓱 문지르면 아래 필기가 지워져요">
           <input type="checkbox" id="scribble-erase" checked /> 긁적 지우기
         </label>
+      </div>
+      <div class="tool-group page-nav-group">
+        <button id="btn-page-prev" class="icon-btn" title="이전 페이지">‹</button>
+        <button id="btn-page-indicator" class="page-indicator" title="페이지 목록">1 / 1</button>
+        <button id="btn-page-next" class="icon-btn" title="다음 페이지">›</button>
+        <button id="btn-page-add" class="icon-btn" title="페이지 추가">＋</button>
       </div>
     </div>
 
