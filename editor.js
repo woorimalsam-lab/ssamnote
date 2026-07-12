@@ -5,10 +5,10 @@
 //  - 페이지 데이터는 Firestore users/{uid}/pages 에 자동 저장
 // ============================================================
 
-import { ctx, toast, showScreen, pageCol, openRenameNotebook, renderPdfPages, writePdfPage, makeCover } from "./app.js";
+import { ctx, toast, showScreen, pageCol, openRenameNotebook, openTextPrompt, renderPdfPages, writePdfPage, makeCover, pageSizeFor } from "./app.js";
 
 const $ = (id) => document.getElementById(id);
-const RES = 2; // 캔버스 해상도 배율 (태블릿 메모리 고려)
+const RES = 2; // 기본 캔버스 해상도 배율 (큰 화이트보드는 메모리를 위해 낮춤 — E.res)
 
 // ---------- 편집기 상태 ----------
 const E = {
@@ -197,10 +197,11 @@ async function showPage(i, refit = false) {
   clearSelection();
   const p = curPage();
 
-  // 캔버스 크기 설정
+  // 캔버스 크기 설정 (큰 캔버스는 해상도 배율을 낮춰 메모리 절약)
+  E.res = p.w * p.h > 2200000 ? 1.25 : RES;
   for (const c of [bgC, inkC, liveC]) {
-    c.width = Math.round(p.w * RES);
-    c.height = Math.round(p.h * RES);
+    c.width = Math.round(p.w * E.res);
+    c.height = Math.round(p.h * E.res);
     c.style.width = p.w + "px";
     c.style.height = p.h + "px";
   }
@@ -243,7 +244,7 @@ function applyView() {
 }
 
 // ---------- 배경(템플릿 / PDF 이미지) ----------
-function drawBackground(p) { drawBackgroundTo(bgG, p, RES, bgC.width, bgC.height); }
+function drawBackground(p) { drawBackgroundTo(bgG, p, E.res || RES, bgC.width, bgC.height); }
 
 function drawBackgroundTo(g, p, res, cw, ch) {
   g.setTransform(1, 0, 0, 1, 0, 0);
@@ -271,6 +272,15 @@ function drawBackgroundTo(g, p, res, cw, ch) {
     g.beginPath(); g.moveTo(250, 60); g.lineTo(250, p.h - 160); g.stroke();
     g.beginPath(); g.moveTo(30, p.h - 160); g.lineTo(p.w - 30, p.h - 160); g.stroke();
     g.beginPath(); g.moveTo(30, 60); g.lineTo(p.w - 30, 60); g.stroke();
+  }
+  if (p.template === "board") {
+    // 화이트보드: 은은한 점 패턴
+    g.fillStyle = "#d2d9e6";
+    for (let x = 40; x < p.w; x += 40) {
+      for (let y = 40; y < p.h; y += 40) {
+        g.beginPath(); g.arc(x, y, 1.4, 0, Math.PI * 2); g.fill();
+      }
+    }
   }
 }
 
@@ -328,7 +338,7 @@ function redrawInk() {
   const p = curPage();
   inkG.setTransform(1, 0, 0, 1, 0, 0);
   inkG.clearRect(0, 0, inkC.width, inkC.height);
-  inkG.setTransform(RES, 0, 0, RES, 0, 0);
+  inkG.setTransform(E.res || RES, 0, 0, E.res || RES, 0, 0);
   for (const st of orderedStrokes(p)) {
     // 동기화 재생 중: 아직 안 쓴 필기는 흐리게(고스트)
     if (E.player && st.rid === E.player.recId && st.rt != null && st.rt > E.player.time + 0.2) {
@@ -458,7 +468,7 @@ function wrapText(g, text, maxW) {
 function clearLive() {
   liveG.setTransform(1, 0, 0, 1, 0, 0);
   liveG.clearRect(0, 0, liveC.width, liveC.height);
-  liveG.setTransform(RES, 0, 0, RES, 0, 0);
+  liveG.setTransform(E.res || RES, 0, 0, E.res || RES, 0, 0);
 }
 
 // ============================================================
@@ -1347,12 +1357,12 @@ function bumpNotebook() {
 // ============================================================
 async function addPageDoc(template, order) {
   const { fs } = ctx.fb;
-  const base = E.pages.length ? curPage() : { w: 1000, h: 1414 };
+  const base = E.pages.length ? curPage() : pageSizeFor(template);
+  const size = template === "same" ? { w: base.w, h: base.h } : pageSizeFor(template);
   const ref = fs.doc(pageCol());
   const p = {
     id: ref.id, nb: E.nb.id, order, template,
-    w: template === "same" ? base.w : 1000,
-    h: template === "same" ? base.h : 1414,
+    w: size.w, h: size.h,
     hasBg: false, strokes: [], objects: [], bgImg: null, bgLoaded: true,
   };
   await fs.setDoc(ref, {
@@ -2230,6 +2240,28 @@ async function runAiAction(kind) {
   }
 }
 
+// 페이지 내용에 대해 자유 질문
+async function runAiAsk(question) {
+  try {
+    const key = await ensureGeminiKey();
+    if (!key) return;
+    aiProgress(true, "필기를 읽는 중…");
+    const text = await getPageText();
+    aiProgress(true, "AI가 생각하는 중…");
+    const prompt = text.trim()
+      ? `다음은 교사의 수업 필기 내용입니다.\n\n${text}\n\n위 내용을 참고해서 아래 질문에 한국어로 간결하고 실용적으로 답해 주세요.\n\n질문: ${question}`
+      : `한국어로 간결하고 실용적으로 답해 주세요.\n\n질문: ${question}`;
+    const out = await askGemini(key, prompt);
+    aiProgress(false);
+    aiReplaceCtx = null;
+    openAiModal("💬 " + question, out, false);
+  } catch (e) {
+    console.error(e);
+    aiProgress(false);
+    toast(e.message || String(e));
+  }
+}
+
 async function runRecognize(selectionOnly) {
   try {
     const p = curPage();
@@ -2297,6 +2329,9 @@ function bindAi() {
   const menuDo = (id, fn) => $(id).addEventListener("click", () => { menu.classList.add("hidden"); fn(); });
   menuDo("ai-recognize-sel", () => runRecognize(true));
   menuDo("ai-recognize-page", () => runRecognize(false));
+  menuDo("ai-ask", () => {
+    openTextPrompt("AI에게 질문", "", (q) => runAiAsk(q));
+  });
   menuDo("ai-summarize", () => runAiAction("summarize"));
   menuDo("ai-quiz", () => runAiAction("quiz"));
   menuDo("ai-polish", () => runAiAction("polish"));

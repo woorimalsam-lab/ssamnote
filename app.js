@@ -123,9 +123,10 @@ const FEATURES = [
   { icon: "📄", name: "PDF 필기·검색", desc: "책장의 'PDF로 새 노트'로 교재·학습지 PDF를 열어 그 위에 바로 필기할 수 있어요.\n\n• 필기 화면 페이지 메뉴(⋮) → 'PDF 가져와 삽입': 지금 노트 중간에 끼워 넣기\n• 페이지 목록(1/30 버튼)의 검색창: PDF 내용으로 페이지 찾기\n• 페이지 메뉴 → 'PDF로 내보내기': 필기 포함 PDF로 저장·인쇄" },
   { icon: "🎙", name: "녹음 + 필기 재생", desc: "필기 화면 상단 🎙를 누르고 수업하며 필기하세요.\n\n🎧 목록에서 재생하면 필기가 처음엔 흐리게 보이다가 소리에 맞춰 나타나요. ✋ 손 도구로 필기를 탭하면 그 부분을 쓴 시점으로 오디오가 점프!\n\n배속(1×/1.5×/2×) 재생과 📝 AI 받아쓰기도 돼요." },
   { icon: "✍️", name: "손글씨 → 텍스트", desc: "필기 화면 상단 ✨ 메뉴에서:\n\n• '선택한 필기를 텍스트로': 올가미로 둘러 선택한 손글씨를 인식\n• '페이지 필기를 텍스트로': 페이지 전체 인식\n\n결과를 복사하거나, 텍스트 상자로 추가하거나, 손글씨와 교체할 수 있어요. 설정 없이 무료로 쓸 수 있어요." },
-  { icon: "✨", name: "AI 요약·퀴즈", desc: "필기 화면 상단 ✨ 메뉴에서 페이지 내용을 AI가 도와줘요.\n\n• AI 요약·정리: 핵심 개념 정리\n• AI 퀴즈 만들기: 학생용 확인 문제 5개(정답·해설 포함)\n• AI 글 다듬기: 맞춤법·문장 교정\n\n처음 한 번만 무료 Gemini API 키를 넣으면 돼요 (안내 창이 알려줘요)." },
+  { icon: "✨", name: "AI 도우미", desc: "필기 화면 상단 ✨ 메뉴에서 페이지 내용을 AI가 도와줘요.\n\n• AI에게 질문: 필기 내용에 대해 자유롭게 질문 (예: \"이 내용으로 수행평가 아이디어 3개\")\n• AI 요약·정리 / 퀴즈 만들기 / 글 다듬기\n\n처음 한 번만 무료 Gemini API 키를 넣으면 돼요 (안내 창이 알려줘요)." },
   { icon: "📑", name: "페이지 이동", desc: "• 손가락으로 화면을 옆으로 쓸어 넘기면(스와이프) 페이지가 넘어가요 (확대 중일 땐 화면 이동으로 동작)\n• '1 / 5' 페이지 표시를 누르면 모든 페이지의 미리보기가 격자로 떠서 바로 이동할 수 있어요\n• ＋ 버튼으로 페이지 추가, ⋮ 메뉴에서 백지·줄노트·모눈 템플릿 선택\n• 노트북을 다시 열면 마지막으로 보던 페이지에서 이어져요" },
   { icon: "📐", name: "도형 자동 보정", desc: "펜으로 선이나 도형을 그린 뒤, 펜을 떼지 말고 잠깐(0.6초) 멈춰 보세요.\n\n• 밑줄·직선 → 곧은 직선으로\n• 동그라미 → 매끈한 원으로\n• 네모 → 반듯한 사각형으로 바뀌어요\n\n바뀐 상태에서 계속 끌면 크기를 조절할 수 있어요. 그냥 그리고 바로 떼면 손글씨 그대로 남아요." },
+  { icon: "🧑‍🏫", name: "화이트보드·빠른 메모", desc: "• 화이트보드: 새 노트북 템플릿에서 '화이트보드'를 고르면 점 패턴의 넓은 가로 캔버스가 생겨요 — 마인드맵, 수업 구상, 브레인스토밍에 좋아요\n\n• ⚡ 빠른 메모: 책장 오른쪽 아래 버튼을 누르면 이름 입력 없이 즉시 메모장이 열려요 (날짜·시간이 자동 제목)" },
   { icon: "📁", name: "폴더 정리", desc: "책장에서 노트북을 폴더로 정리할 수 있어요.\n\n• 노트북 목록 위 '＋ 새 폴더'로 폴더 만들기\n• 노트북의 ⋮ → '폴더로 이동'\n• 폴더 탭을 누르면 그 폴더만 보기\n• 선택된 폴더 탭을 한 번 더 누르면 이름 바꾸기·삭제\n\n폴더를 보면서 새 노트북을 만들면 자동으로 그 폴더에 들어가요." },
 ];
 
@@ -201,7 +202,7 @@ function renderShelf() {
 let menuTarget = null;
 let promptCb = null;
 
-function openTextPrompt(title, initial, cb) {
+export function openTextPrompt(title, initial, cb) {
   $("rename-title").textContent = title;
   $("rename-input").value = initial || "";
   promptCb = cb;
@@ -348,11 +349,12 @@ function newNotebookModal(show) {
   if (show) { $("new-nb-title").value = ""; $("new-nb-title").focus(); }
 }
 
-async function createNotebook() {
-  const title = $("new-nb-title").value.trim() || "새 노트북";
-  const template = document.querySelector("#new-nb-template .selected").dataset.t;
-  const color = document.querySelector("#new-nb-color .selected").dataset.c;
+// 템플릿별 페이지 크기 (화이트보드는 넓은 가로 캔버스)
+export function pageSizeFor(template) {
+  return template === "board" ? { w: 2400, h: 1600 } : { w: 1000, h: 1414 };
+}
 
+async function createNotebookDoc(title, color, template) {
   const { fs } = ctx.fb;
   const nbRef = fs.doc(nbCol());
   await fs.setDoc(nbRef, {
@@ -360,14 +362,35 @@ async function createNotebook() {
     folder: currentFolder?.id || null, // 폴더를 보고 있으면 그 폴더에 생성
     createdAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp(),
   });
-  // 첫 페이지
+  const { w, h } = pageSizeFor(template);
   const pRef = fs.doc(pageCol());
   await fs.setDoc(pRef, {
-    nb: nbRef.id, order: 0, template, w: 1000, h: 1414,
+    nb: nbRef.id, order: 0, template, w, h,
     hasBg: false, strokes: "[]", objects: "[]", updatedAt: fs.serverTimestamp(),
   });
+  return { id: nbRef.id, title, color, template, pageCount: 1 };
+}
+
+async function createNotebook() {
+  const title = $("new-nb-title").value.trim() || "새 노트북";
+  const template = document.querySelector("#new-nb-template .selected").dataset.t;
+  const color = document.querySelector("#new-nb-color .selected").dataset.c;
+  const nb = await createNotebookDoc(title, color, template);
   newNotebookModal(false);
-  openNotebook({ id: nbRef.id, title, color, template, pageCount: 1 });
+  openNotebook(nb);
+}
+
+// 빠른 메모: 한 번 탭으로 즉시 생성해서 열기
+async function createQuickNote() {
+  const now = new Date();
+  const title = `빠른 메모 ${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  try {
+    const nb = await createNotebookDoc(title, "#d97706", "lines");
+    openNotebook(nb);
+  } catch (e) {
+    console.error(e);
+    toast("빠른 메모를 만들지 못했어요: " + (e.message || e));
+  }
 }
 
 // ---------- PDF 가져오기 ----------
@@ -582,6 +605,7 @@ function bindEvents() {
     renderShelf();
   });
 
+  $("btn-quick-note").addEventListener("click", createQuickNote);
   $("btn-new-pdf").addEventListener("click", () => $("input-pdf").click());
   $("input-pdf").addEventListener("change", (e) => {
     const f = e.target.files[0];
