@@ -32,7 +32,16 @@ html, body {
   color: var(--text);
   -webkit-tap-highlight-color: transparent;
   letter-spacing: -0.01em;
+  /* 아이패드: 길게 눌렀을 때 텍스트 선택·돋보기·콜아웃 방지 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
+input, textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+button, label { touch-action: manipulation; }
 
 .hidden { display: none !important; }
 
@@ -97,12 +106,13 @@ html, body {
 }
 .login-card h1 { margin: 22px 0 10px; font-size: 30px; font-weight: 800; letter-spacing: -0.03em; }
 .login-card p { color: var(--text-dim); line-height: 1.65; margin-bottom: 30px; font-size: 15px; }
-.login-error { color: var(--danger); margin-top: 16px; font-size: 14px; }
+.login-error { color: var(--danger); margin-top: 16px; font-size: 14px; white-space: pre-line; line-height: 1.6; }
 
 /* ---------- 책장 ---------- */
 .shelf-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 28px;
+  padding-top: calc(14px + env(safe-area-inset-top)); /* 아이패드 상태바 겹침 방지 */
   background: var(--glass);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--hairline);
@@ -262,7 +272,8 @@ html, body {
 .shelf-empty { text-align: center; color: var(--text-dim); margin-top: 90px; line-height: 1.9; font-size: 16px; }
 
 .shelf-fabs {
-  position: fixed; right: 28px; bottom: 28px; display: flex; gap: 12px; z-index: 5;
+  position: fixed; right: 28px; display: flex; gap: 12px; z-index: 5;
+  bottom: calc(28px + env(safe-area-inset-bottom));
 }
 
 /* ---------- 모달 ---------- */
@@ -358,6 +369,7 @@ html, body {
   display: flex; align-items: center; gap: 4px;
   background: linear-gradient(180deg, #2b5cd9, #2150c4);
   padding: 6px 10px;
+  padding-top: calc(6px + env(safe-area-inset-top)); /* 아이패드 상태바 겹침 방지 */
   box-shadow: 0 2px 10px rgba(20, 45, 110, .25);
   z-index: 10;
 }
@@ -494,6 +506,8 @@ html, body {
   position: fixed; top: 0; right: 0; bottom: 0; width: min(320px, 82vw);
   background: var(--surface); box-shadow: var(--shadow-lg); z-index: 40;
   display: flex; flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 .page-panel-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -573,7 +587,8 @@ html, body {
 .audio-empty { text-align: center; color: var(--text-dim); font-size: 14px; line-height: 1.8; padding: 30px 10px; }
 
 .player-bar {
-  position: fixed; left: 50%; transform: translateX(-50%); bottom: 22px;
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(22px + env(safe-area-inset-bottom));
   display: flex; align-items: center; gap: 10px;
   width: min(560px, calc(100% - 32px));
   background: var(--glass);
@@ -614,7 +629,8 @@ html, body {
 
 /* ---------- 토스트 ---------- */
 .toast {
-  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(30px + env(safe-area-inset-bottom));
   background: rgba(14, 24, 40, .92);
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   color: #fff; padding: 13px 22px;

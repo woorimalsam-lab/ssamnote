@@ -1891,7 +1891,13 @@ async function playRecording(meta) {
     $("player-toggle").textContent = "⏸";
     $("player-speed").textContent = "1×";
     audio.addEventListener("ended", () => { $("player-toggle").textContent = "▶"; });
-    await audio.play();
+    // iOS: 로딩이 끝난 시점엔 '사용자 탭' 컨텍스트가 끊겨 자동 재생이 거부될 수 있음
+    try {
+      await audio.play();
+    } catch {
+      $("player-toggle").textContent = "▶";
+      toast("준비됐어요 — ▶ 버튼을 눌러 재생하세요");
+    }
     playerTick();
     const hasSync = p.strokes.some((st) => st.rid === meta.id);
     if (hasSync) toast("✋ 손 도구로 필기를 탭하면 그 시점으로 이동해요");

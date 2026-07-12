@@ -82,7 +82,9 @@ async function login() {
       try { await authMod.signInWithRedirect(auth, provider); return; } catch (e2) { e = e2; }
     }
     const el = $("login-error");
-    el.textContent = "로그인에 실패했어요: " + (e.message || e);
+    const isIos = /iPad|iPhone|Macintosh/.test(navigator.userAgent) && "ontouchend" in document;
+    el.textContent = "로그인에 실패했어요: " + (e.message || e) +
+      (isIos ? "\n홈 화면 앱에서 로그인 창이 안 뜨면, Safari 브라우저로 접속해 로그인해 보세요." : "");
     el.classList.remove("hidden");
   }
 }
@@ -591,6 +593,11 @@ function bindEvents() {
 async function main() {
   bindEvents();
   initEditor();
+
+  // 아이패드 사파리: 핀치로 페이지 전체가 확대되는 것 방지 (캔버스 확대는 자체 처리)
+  for (const ev of ["gesturestart", "gesturechange", "gestureend"]) {
+    document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+  }
 
   // 개발용 데모 모드: #demo 로 열면 로그인 없이 임시 노트북(저장 안 됨)
   if (location.hash === "#demo") {
