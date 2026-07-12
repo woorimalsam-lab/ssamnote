@@ -193,9 +193,15 @@ async function deleteNotebook(nb) {
   const q = fs.query(pageCol(), fs.where("nb", "==", nb.id));
   const snap = await fs.getDocs(q);
   for (const d of snap.docs) {
-    // 배경 이미지 조각도 함께 삭제
+    // 배경 이미지·녹음 조각도 함께 삭제
     const bgSnap = await fs.getDocs(fs.collection(d.ref, "bg"));
     for (const c of bgSnap.docs) await fs.deleteDoc(c.ref);
+    const audioSnap = await fs.getDocs(fs.collection(d.ref, "audio"));
+    for (const a of audioSnap.docs) {
+      const chunks = await fs.getDocs(fs.collection(a.ref, "chunks"));
+      for (const c of chunks.docs) await fs.deleteDoc(c.ref);
+      await fs.deleteDoc(a.ref);
+    }
     await fs.deleteDoc(d.ref);
   }
   await fs.deleteDoc(fs.doc(db, "users", ctx.user.uid, "notebooks", nb.id));

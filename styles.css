@@ -426,6 +426,51 @@ html, body {
 .page-menu button:active { background: rgba(47, 107, 255, .14); }
 .page-menu button.danger { color: var(--danger); }
 
+/* ---------- 녹음 ---------- */
+.rec-timer {
+  display: inline-flex; align-items: center;
+  background: rgba(229, 72, 77, .12); color: var(--danger);
+  font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  padding: 6px 12px; border-radius: 999px; white-space: nowrap;
+  animation: rec-pulse 1.6s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
+
+.audio-list { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.audio-item {
+  display: flex; align-items: center; gap: 6px;
+  border: 1.5px solid var(--border); border-radius: 14px;
+  padding: 8px 10px; background: #fff;
+}
+.audio-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.audio-info strong { font-size: 14.5px; }
+.audio-info span { font-size: 12.5px; color: var(--text-dim); }
+.audio-empty { text-align: center; color: var(--text-dim); font-size: 14px; line-height: 1.8; padding: 30px 10px; }
+
+.player-bar {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 22px;
+  display: flex; align-items: center; gap: 10px;
+  width: min(560px, calc(100% - 32px));
+  background: var(--glass);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, .7);
+  border-radius: 999px; box-shadow: var(--shadow-lg);
+  padding: 8px 14px; z-index: 30;
+}
+#player-seek { flex: 1; accent-color: var(--primary); min-width: 60px; }
+#player-time {
+  font-size: 12.5px; color: var(--text-dim); white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.player-speed {
+  border: 1.5px solid var(--border); border-radius: 999px; background: #fff;
+  font-size: 13px; font-weight: 700; font-family: inherit; color: var(--primary);
+  padding: 7px 12px; cursor: pointer; white-space: nowrap;
+}
+
 /* ---------- AI ---------- */
 .ai-result {
   width: 100%; min-height: 200px; max-height: 45vh;

@@ -128,6 +128,9 @@
       <button id="btn-back" class="icon-btn" title="책장으로">←</button>
       <span id="editor-title" class="editor-title">노트북</span>
       <span id="save-status" class="save-status">저장됨</span>
+      <button id="btn-record" class="icon-btn" title="녹음 시작/정지">🎙</button>
+      <button id="btn-audio" class="icon-btn" title="녹음 목록">🎧</button>
+      <span id="rec-timer" class="rec-timer hidden">● 0:00</span>
       <div class="editor-top-right">
         <button id="btn-undo" class="icon-btn" title="실행 취소">↩</button>
         <button id="btn-redo" class="icon-btn" title="다시 실행">↪</button>
@@ -209,6 +212,25 @@
         <button id="page-panel-close" class="icon-btn">✕</button>
       </div>
       <div id="page-list" class="page-list"></div>
+    </div>
+
+    <!-- 녹음 목록 패널 -->
+    <div id="audio-panel" class="page-panel hidden">
+      <div class="page-panel-head">
+        <strong>🎧 이 페이지의 녹음</strong>
+        <button id="audio-panel-close" class="icon-btn">✕</button>
+      </div>
+      <div id="audio-list" class="audio-list"></div>
+      <p class="ai-note">🎙 버튼으로 녹음하면서 필기하면, 재생할 때 필기가 쓴 순서대로 나타나요. 재생 중 ✋ 손 도구로 필기를 탭하면 그 부분을 쓴 시점으로 이동해요.</p>
+    </div>
+
+    <!-- 재생 바 -->
+    <div id="player-bar" class="player-bar hidden">
+      <button id="player-toggle" class="icon-btn">⏸</button>
+      <input type="range" id="player-seek" min="0" max="100" value="0" step="0.1" />
+      <span id="player-time">0:00 / 0:00</span>
+      <button id="player-speed" class="player-speed">1×</button>
+      <button id="player-close" class="icon-btn">✕</button>
     </div>
 
     <!-- 페이지 메뉴 -->

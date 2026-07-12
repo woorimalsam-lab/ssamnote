@@ -46,6 +46,16 @@ export function initEditor() {
   bindPages();
   bindKeyboard();
   bindAi();
+  bindAudio();
+}
+
+// 녹음 중이면 획에 시간·녹음 ID를 기록 (동기화 재생용)
+function tagStrokeWithRecording(stroke) {
+  if (E.rec && E.rec.pageId === curPage().id) {
+    stroke.rt = Math.round((Date.now() - E.rec.t0) / 100) / 10;
+    stroke.rid = E.rec.recId;
+  }
+  return stroke;
 }
 
 export async function openNotebook(nb) {
@@ -93,6 +103,9 @@ function safeParse(s) {
 // ============================================================
 async function showPage(i, refit = false) {
   flushSave();
+  if (E.rec) { toast("페이지를 옮겨서 녹음을 저장했어요"); stopRecording(); }
+  stopPlayback();
+  $("audio-panel").classList.add("hidden");
   E.cur = Math.max(0, Math.min(i, E.pages.length - 1));
   E.undoStack = []; E.redoStack = [];
   clearSelection();
@@ -213,7 +226,16 @@ function redrawInk() {
   inkG.setTransform(1, 0, 0, 1, 0, 0);
   inkG.clearRect(0, 0, inkC.width, inkC.height);
   inkG.setTransform(RES, 0, 0, RES, 0, 0);
-  for (const st of p.strokes) drawStroke(inkG, st);
+  for (const st of p.strokes) {
+    // 동기화 재생 중: 아직 안 쓴 필기는 흐리게(고스트)
+    if (E.player && st.rid === E.player.recId && st.rt != null && st.rt > E.player.time + 0.2) {
+      inkG.globalAlpha = 0.13;
+      drawStroke(inkG, st);
+      inkG.globalAlpha = 1;
+    } else {
+      drawStroke(inkG, st);
+    }
+  }
   for (const o of p.objects) { if (!o._hidden) drawObject(inkG, o); }
 }
 
@@ -242,7 +264,7 @@ function drawStroke(g, st) {
       }
     }
   } else if (st.t === "hl") {
-    g.globalAlpha = 0.35;
+    g.globalAlpha = 0.35 * g.globalAlpha; // 고스트(동기화 재생) 알파와 곱해지도록
     g.lineCap = "butt";
     g.lineWidth = st.s * 3.2;
     const pts = st.p;
@@ -353,6 +375,8 @@ function bindPointer() {
     const pt = screenToPage(e.clientX, e.clientY);
 
     if (panOnly) {
+      // 재생 중 ✋ 손 도구로 필기를 탭하면 그 시점으로 이동
+      if (E.tool === "hand" && E.player) seekToStrokeAt(pt);
       gesture = { mode: "pan", lastX: e.clientX, lastY: e.clientY };
       return;
     }
@@ -462,7 +486,7 @@ function bindPointer() {
 
     if (g.mode === "draw") {
       if (g.stroke.p.length > 0) {
-        commit(() => curPage().strokes.push(g.stroke));
+        commit(() => curPage().strokes.push(tagStrokeWithRecording(g.stroke)));
       }
       clearLive();
     } else if (g.mode === "erase") {
@@ -474,7 +498,7 @@ function bindPointer() {
     } else if (g.mode === "shape") {
       const sh = shapeFromGesture(g);
       if (Math.hypot(sh.x1 - sh.x0, sh.y1 - sh.y0) > 3) {
-        commit(() => curPage().strokes.push(sh));
+        commit(() => curPage().strokes.push(tagStrokeWithRecording(sh)));
       }
       clearLive();
     } else if (g.mode === "lasso") {
@@ -1072,6 +1096,13 @@ async function deleteCurrentPage() {
     const ref = fs.doc(pageCol(), p.id);
     const bgSnap = await fs.getDocs(fs.collection(ref, "bg"));
     for (const c of bgSnap.docs) fs.deleteDoc(c.ref);
+    // 녹음도 함께 삭제
+    const audioSnap = await fs.getDocs(fs.collection(ref, "audio"));
+    for (const a of audioSnap.docs) {
+      const chunks = await fs.getDocs(fs.collection(a.ref, "chunks"));
+      for (const c of chunks.docs) fs.deleteDoc(c.ref);
+      fs.deleteDoc(a.ref);
+    }
     await fs.deleteDoc(ref);
     E.lastNbBump = 0; bumpNotebook();
     toast("삭제했어요");
@@ -1253,6 +1284,9 @@ function bindToolbar() {
   });
   $("btn-back").addEventListener("click", () => {
     commitTextEditor(); flushSave();
+    if (E.rec) stopRecording();
+    stopPlayback();
+    $("audio-panel").classList.add("hidden");
     showScreen("shelf");
     E.nb = null;
   });
@@ -1364,6 +1398,287 @@ function bindKeyboard() {
 }
 
 // ============================================================
+//  음성 녹음 — 녹음하며 필기, 동기화 재생 (굿노트 스타일)
+// ============================================================
+const REC_MAX_SEC = 30 * 60;   // 최대 30분 자동 정지
+const AUDIO_CHUNK = 500000;
+
+function audioCol(pageId) {
+  const { fs } = ctx.fb;
+  return fs.collection(fs.doc(pageCol(), pageId), "audio");
+}
+
+function fmtTime(s) {
+  s = Math.max(0, Math.round(s));
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
+
+// ---------- 녹음 ----------
+async function toggleRecording() {
+  if (E.rec) { stopRecording(); return; }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    toast("이 브라우저에서는 녹음을 지원하지 않아요");
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
+    const mr = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : undefined);
+    const { fs } = ctx.fb;
+    const recId = fs.doc(audioCol(curPage().id)).id;
+    const rec = { mr, stream, chunks: [], t0: Date.now(), pageId: curPage().id, recId };
+    mr.addEventListener("dataavailable", (e) => { if (e.data.size) rec.chunks.push(e.data); });
+    mr.start(1000);
+    E.rec = rec;
+
+    $("btn-record").textContent = "⏹";
+    $("rec-timer").classList.remove("hidden");
+    rec.timer = setInterval(() => {
+      const sec = (Date.now() - rec.t0) / 1000;
+      $("rec-timer").textContent = "● " + fmtTime(sec);
+      if (sec >= REC_MAX_SEC) { toast("30분이 되어 녹음을 저장했어요"); stopRecording(); }
+    }, 1000);
+    toast("🎙 녹음 시작 — 필기하면 재생할 때 함께 나타나요");
+  } catch (e) {
+    console.error(e);
+    toast(e.name === "NotAllowedError" ? "마이크 사용 권한을 허용해 주세요" : "녹음을 시작하지 못했어요: " + (e.message || e));
+  }
+}
+
+function stopRecording() {
+  const rec = E.rec;
+  if (!rec) return;
+  E.rec = null;
+  clearInterval(rec.timer);
+  $("btn-record").textContent = "🎙";
+  $("rec-timer").classList.add("hidden");
+  const dur = Math.round((Date.now() - rec.t0) / 100) / 10;
+
+  rec.mr.addEventListener("stop", async () => {
+    rec.stream.getTracks().forEach((t) => t.stop());
+    if (dur < 1 || rec.chunks.length === 0) { toast("녹음이 너무 짧아 저장하지 않았어요"); return; }
+    try {
+      setStatus("녹음 저장 중…");
+      const blob = new Blob(rec.chunks, { type: rec.mr.mimeType || "audio/webm" });
+      const dataUrl = await new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = rej;
+        fr.readAsDataURL(blob);
+      });
+      const { fs } = ctx.fb;
+      const now = new Date();
+      const metaRef = fs.doc(audioCol(rec.pageId), rec.recId);
+      await fs.setDoc(metaRef, {
+        dur, mime: blob.type, total: Math.ceil(dataUrl.length / AUDIO_CHUNK),
+        label: `${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
+        createdAt: fs.serverTimestamp(),
+      });
+      for (let c = 0; c * AUDIO_CHUNK < dataUrl.length; c++) {
+        await fs.setDoc(fs.doc(fs.collection(metaRef, "chunks"), String(c)), {
+          i: c, data: dataUrl.slice(c * AUDIO_CHUNK, (c + 1) * AUDIO_CHUNK),
+        });
+      }
+      const p = E.pages.find((x) => x.id === rec.pageId);
+      if (p) p.audioList = null; // 목록 다시 불러오게
+      setStatus("저장됨 ✓");
+      toast(`녹음 저장 완료 (${fmtTime(dur)}) — 🎧에서 재생할 수 있어요`);
+    } catch (e) {
+      console.error(e);
+      setStatus("저장 실패");
+      toast("녹음 저장에 실패했어요: " + (e.message || e));
+    }
+  }, { once: true });
+  rec.mr.stop();
+}
+
+// ---------- 녹음 목록 ----------
+async function loadAudioList(p) {
+  if (p.audioList) return p.audioList;
+  const { fs } = ctx.fb;
+  const snap = await fs.getDocs(audioCol(p.id));
+  p.audioList = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+  return p.audioList;
+}
+
+async function openAudioPanel() {
+  const panel = $("audio-panel");
+  panel.classList.remove("hidden");
+  const list = $("audio-list");
+  list.innerHTML = "<p class='audio-empty'>불러오는 중…</p>";
+  try {
+    const items = await loadAudioList(curPage());
+    list.innerHTML = "";
+    if (items.length === 0) {
+      list.innerHTML = "<p class='audio-empty'>아직 녹음이 없어요.<br/>🎙 버튼으로 녹음해 보세요.</p>";
+      return;
+    }
+    items.forEach((m, idx) => {
+      const row = document.createElement("div");
+      row.className = "audio-item";
+      const play = document.createElement("button");
+      play.className = "icon-btn";
+      play.textContent = "▶";
+      play.addEventListener("click", () => { panel.classList.add("hidden"); playRecording(m); });
+      const info = document.createElement("div");
+      info.className = "audio-info";
+      info.innerHTML = `<strong>녹음 ${idx + 1}</strong><span>${m.label || ""} · ${fmtTime(m.dur || 0)}</span>`;
+      const tr = document.createElement("button");
+      tr.className = "icon-btn";
+      tr.title = "AI 전사(받아쓰기)";
+      tr.textContent = "📝";
+      tr.addEventListener("click", () => { panel.classList.add("hidden"); transcribeRecording(m); });
+      const del = document.createElement("button");
+      del.className = "icon-btn";
+      del.textContent = "🗑";
+      del.addEventListener("click", async () => {
+        if (!confirm("이 녹음을 삭제할까요?")) return;
+        await deleteRecording(curPage(), m.id);
+        openAudioPanel();
+      });
+      row.append(play, info, tr, del);
+      list.appendChild(row);
+    });
+  } catch (e) {
+    console.error(e);
+    list.innerHTML = "<p class='audio-empty'>목록을 불러오지 못했어요</p>";
+  }
+}
+
+async function deleteRecording(p, recId) {
+  try {
+    const { fs } = ctx.fb;
+    const metaRef = fs.doc(audioCol(p.id), recId);
+    const chunks = await fs.getDocs(fs.collection(metaRef, "chunks"));
+    for (const c of chunks.docs) await fs.deleteDoc(c.ref);
+    await fs.deleteDoc(metaRef);
+    p.audioList = null;
+    if (E.player?.recId === recId) stopPlayback();
+    toast("삭제했어요");
+  } catch (e) {
+    console.error(e);
+    toast("삭제에 실패했어요: " + (e.message || e));
+  }
+}
+
+async function fetchAudioData(p, meta) {
+  const { fs } = ctx.fb;
+  const metaRef = fs.doc(audioCol(p.id), meta.id);
+  const snap = await fs.getDocs(fs.collection(metaRef, "chunks"));
+  if (snap.empty) throw new Error("녹음 데이터를 찾을 수 없어요");
+  const dataUrl = snap.docs.map((d) => d.data()).sort((a, b) => a.i - b.i).map((c) => c.data).join("");
+  return dataUrl;
+}
+
+// ---------- 재생 (필기 동기화) ----------
+async function playRecording(meta) {
+  try {
+    stopPlayback();
+    aiProgress(true, "녹음을 불러오는 중…");
+    const p = curPage();
+    const dataUrl = await fetchAudioData(p, meta);
+    // data URL → Blob URL (사파리 호환)
+    const [head, b64] = dataUrl.split(",");
+    const mime = head.match(/data:(.*?);/)?.[1] || meta.mime || "audio/webm";
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    aiProgress(false);
+
+    const audio = new Audio(url);
+    E.player = { audio, url, recId: meta.id, dur: meta.dur || 0, time: 0, speed: 1, raf: null };
+    $("player-bar").classList.remove("hidden");
+    $("player-seek").max = E.player.dur;
+    $("player-toggle").textContent = "⏸";
+    $("player-speed").textContent = "1×";
+    audio.addEventListener("ended", () => { $("player-toggle").textContent = "▶"; });
+    await audio.play();
+    playerTick();
+    const hasSync = p.strokes.some((st) => st.rid === meta.id);
+    if (hasSync) toast("✋ 손 도구로 필기를 탭하면 그 시점으로 이동해요");
+  } catch (e) {
+    console.error(e);
+    aiProgress(false);
+    toast("재생에 실패했어요: " + (e.message || e));
+  }
+}
+
+function playerTick() {
+  if (!E.player) return;
+  const pl = E.player;
+  const t = pl.audio.currentTime;
+  if (Math.abs(t - pl.time) > 0.15) {
+    pl.time = t;
+    $("player-seek").value = t;
+    $("player-time").textContent = `${fmtTime(t)} / ${fmtTime(pl.dur)}`;
+    redrawInk(); // 필기 동기화(고스트) 갱신
+  }
+  pl.raf = requestAnimationFrame(playerTick);
+}
+
+function stopPlayback() {
+  const pl = E.player;
+  if (!pl) return;
+  E.player = null;
+  cancelAnimationFrame(pl.raf);
+  pl.audio.pause();
+  URL.revokeObjectURL(pl.url);
+  $("player-bar").classList.add("hidden");
+  redrawInk();
+}
+
+// 재생 중 ✋ 손 도구로 필기를 탭 → 그 획을 쓴 시점으로 이동
+function seekToStrokeAt(pt) {
+  if (!E.player) return false;
+  const p = curPage();
+  let best = null, bestD = 20;
+  for (const st of p.strokes) {
+    if (st.rid !== E.player.recId || st.rt == null) continue;
+    for (const [x, y] of strokePoints(st)) {
+      const d = Math.hypot(x - pt.x, y - pt.y);
+      if (d < bestD) { bestD = d; best = st; }
+    }
+  }
+  if (best) {
+    E.player.audio.currentTime = Math.max(0, best.rt - 1);
+    if (E.player.audio.paused) { E.player.audio.play(); $("player-toggle").textContent = "⏸"; }
+    return true;
+  }
+  return false;
+}
+
+function bindAudio() {
+  $("btn-record").addEventListener("click", toggleRecording);
+  $("btn-audio").addEventListener("click", () => {
+    if ($("audio-panel").classList.contains("hidden")) openAudioPanel();
+    else $("audio-panel").classList.add("hidden");
+  });
+  $("audio-panel-close").addEventListener("click", () => $("audio-panel").classList.add("hidden"));
+
+  $("player-toggle").addEventListener("click", () => {
+    if (!E.player) return;
+    const a = E.player.audio;
+    if (a.paused) { a.play(); $("player-toggle").textContent = "⏸"; }
+    else { a.pause(); $("player-toggle").textContent = "▶"; }
+  });
+  $("player-seek").addEventListener("input", (e) => {
+    if (E.player) E.player.audio.currentTime = Number(e.target.value);
+  });
+  $("player-speed").addEventListener("click", () => {
+    if (!E.player) return;
+    const next = { 1: 1.5, 1.5: 2, 2: 1 }[E.player.speed] || 1;
+    E.player.speed = next;
+    E.player.audio.playbackRate = next;
+    $("player-speed").textContent = next + "×";
+  });
+  $("player-close").addEventListener("click", stopPlayback);
+}
+
+// ============================================================
 //  AI 도구 — 손글씨 인식(Google Input Tools) + Gemini(요약·퀴즈·다듬기)
 // ============================================================
 const HW_URL = "https://inputtools.google.com/request?itc=ko-t-i0-handwrit&app=ssamnote";
@@ -1440,13 +1755,15 @@ function closeKeyModal(value) {
   if (keyResolver) { keyResolver(value); keyResolver = null; }
 }
 
-async function askGemini(key, prompt) {
+async function askGemini(key, prompt, audio = null) {
+  const parts = [{ text: prompt }];
+  if (audio) parts.push({ inline_data: { mime_type: audio.mime, data: audio.b64 } });
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      body: JSON.stringify({ contents: [{ parts }] }),
     }
   );
   if (res.status === 400 || res.status === 403) {
@@ -1519,6 +1836,30 @@ async function runRecognize(selectionOnly) {
     const text = await recognizeInk(strokes, p.w, p.h);
     aiProgress(false);
     openAiModal("손글씨 → 텍스트", text, selectionOnly);
+  } catch (e) {
+    console.error(e);
+    aiProgress(false);
+    toast(e.message || String(e));
+  }
+}
+
+// 녹음 → AI 전사(받아쓰기)
+async function transcribeRecording(meta) {
+  try {
+    const key = await ensureGeminiKey();
+    if (!key) return;
+    aiProgress(true, "녹음을 불러오는 중…");
+    const dataUrl = await fetchAudioData(curPage(), meta);
+    const [head, b64] = dataUrl.split(",");
+    const mime = head.match(/data:(.*?);/)?.[1] || meta.mime || "audio/webm";
+    if (b64.length > 19000000) throw new Error("녹음이 너무 길어요 (약 20MB 초과)");
+    aiProgress(true, "AI가 받아쓰는 중… (길면 1분 정도 걸려요)");
+    const out = await askGemini(key,
+      "다음 녹음을 한국어로 전사해 주세요. 문장 단위로 자연스럽게 정리하고, 화자가 바뀌면 줄을 바꿔 주세요. 전사문만 출력하세요.",
+      { mime, b64 });
+    aiProgress(false);
+    aiReplaceCtx = null;
+    openAiModal(`녹음 전사 (${fmtTime(meta.dur || 0)})`, out, false);
   } catch (e) {
     console.error(e);
     aiProgress(false);
