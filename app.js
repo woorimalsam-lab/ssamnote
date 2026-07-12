@@ -179,6 +179,7 @@ function renderShelf() {
       img.className = "nb-cover-img";
       img.src = nb.cover;
       img.alt = "";
+      img.draggable = false; // 표지 이미지의 기본 드래그가 카드 드래그를 가로채지 않게
       card.appendChild(img);
     }
 
@@ -215,7 +216,8 @@ let suppressOpen = false;
 
 function startCardHold(e, nb, card) {
   if (e.button !== undefined && e.button !== 0) return;
-  const sx = e.clientX, sy = e.clientY;
+  if (e.target.closest(".nb-more")) return; // ⋮ 메뉴 버튼은 제외
+  const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
   const cleanup = () => {
     clearTimeout(holdTimer);
     card.removeEventListener("pointermove", onMove);
@@ -223,15 +225,19 @@ function startCardHold(e, nb, card) {
     card.removeEventListener("pointercancel", cleanup);
   };
   const onMove = (ev) => {
-    if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) cleanup(); // 스크롤/탭으로 판단
+    if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 16) cleanup(); // 스크롤/탭으로 판단(허용치 완화)
   };
-  const holdTimer = setTimeout(() => { cleanup(); beginCardDrag(nb, card, sx, sy); }, 350);
+  const holdTimer = setTimeout(() => {
+    cleanup();
+    try { card.setPointerCapture(pid); } catch {} // 손가락이 카드를 벗어나도 이동 이벤트 유지
+    beginCardDrag(nb, card, sx, sy, pid);
+  }, 350);
   card.addEventListener("pointermove", onMove);
   card.addEventListener("pointerup", cleanup);
   card.addEventListener("pointercancel", cleanup);
 }
 
-function beginCardDrag(nb, card, x, y) {
+function beginCardDrag(nb, card, x, y, pid) {
   if (navigator.vibrate) navigator.vibrate(15);
   const rect = card.getBoundingClientRect();
   const ghost = card.cloneNode(true);
@@ -243,7 +249,8 @@ function beginCardDrag(nb, card, x, y) {
   ghost.style.top = rect.top + "px";
   document.body.appendChild(ghost);
   card.classList.add("drag-src");
-  cardDrag = { nb, card, ghost, offX: x - rect.left, offY: y - rect.top };
+  cardDrag = { nb, card, ghost, pid, offX: x - rect.left, offY: y - rect.top };
+  // 포인터 캡처 시 이벤트는 카드로 향하지만 document까지 버블링됨
   document.addEventListener("pointermove", onCardDragMove);
   document.addEventListener("pointerup", endCardDrag, { once: true });
   document.addEventListener("pointercancel", endCardDrag, { once: true });

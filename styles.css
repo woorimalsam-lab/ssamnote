@@ -249,6 +249,8 @@ button, label { touch-action: manipulation; }
 .nb-cover-img {
   position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: cover; object-position: top;
+  pointer-events: none; /* 표지 이미지가 드래그·탭을 가로채지 않게 */
+  -webkit-user-drag: none; user-drag: none;
 }
 .nb-card.has-cover { background: #fff; }
 .nb-card.has-cover::before { background: rgba(0, 0, 0, .14); box-shadow: none; }
