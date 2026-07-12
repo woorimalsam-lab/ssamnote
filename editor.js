@@ -1618,6 +1618,28 @@ function bindToolbar() {
     savePrefs();
   });
   $("hl-straight").addEventListener("change", (e) => { E.hlStraight = e.target.checked; savePrefs(); });
+  // 지우개 버튼을 길게(0.8초) 누르면 쪽 전체 지우기
+  let eraserHold = null;
+  const eraserBtn = $("tool-eraser");
+  eraserBtn.addEventListener("contextmenu", (e) => e.preventDefault());
+  eraserBtn.addEventListener("pointerdown", () => {
+    clearTimeout(eraserHold);
+    eraserHold = setTimeout(() => {
+      eraserHold = null;
+      if (!E.nb) return;
+      if (navigator.vibrate) navigator.vibrate(20);
+      const p = curPage();
+      if (p.strokes.length === 0 && p.objects.length === 0) { toast("지울 내용이 없어요"); return; }
+      if (!confirm("이 페이지의 내용을 모두 지울까요?\n(필기·텍스트·이미지 삭제, 배경은 유지 — 되돌리기 가능)")) return;
+      commit(() => { const q = curPage(); q.strokes = []; q.objects = []; });
+      clearSelection();
+      toast("모두 지웠어요 — ↩ 또는 ⋮ 메뉴의 '실행 취소'로 되돌릴 수 있어요");
+    }, 800);
+  });
+  for (const ev of ["pointerup", "pointerleave", "pointercancel"]) {
+    eraserBtn.addEventListener(ev, () => { clearTimeout(eraserHold); eraserHold = null; });
+  }
+
   // 지우개 옵션
   $("eraser-options").style.display = "none";
   $("erase-hl-only").addEventListener("change", (e) => { E.eraseHlOnly = e.target.checked; savePrefs(); });
@@ -1773,6 +1795,15 @@ function bindPages() {
     }
   });
   const menuDo = (id, fn) => $(id).addEventListener("click", () => { menu.classList.add("hidden"); fn(); });
+  menuDo("menu-undo", () => {
+    if (E.undoStack.length === 0) { toast("되돌릴 내용이 없어요"); return; }
+    undo();
+    toast("되돌렸어요");
+  });
+  menuDo("menu-redo", () => {
+    if (E.redoStack.length === 0) { toast("다시 실행할 내용이 없어요"); return; }
+    redo();
+  });
   menuDo("menu-add-blank", () => addPage("current"));
   menuDo("menu-add-tpl-blank", () => addPage("blank"));
   menuDo("menu-add-tpl-lines", () => addPage("lines"));
