@@ -616,6 +616,23 @@ export function makeCover(dataUrl) {
   });
 }
 
+// 캔버스 → JPEG 데이터URL. toBlob(비동기, 메인 스레드 안 막음)이 있으면 사용
+function canvasToJpeg(canvas, quality) {
+  return new Promise((resolve) => {
+    if (canvas.toBlob) {
+      canvas.toBlob((blob) => {
+        if (!blob) { resolve(canvas.toDataURL("image/jpeg", quality)); return; }
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = () => resolve(canvas.toDataURL("image/jpeg", quality));
+        fr.readAsDataURL(blob);
+      }, "image/jpeg", quality);
+    } else {
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    }
+  });
+}
+
 // PDF를 페이지 단위로 렌더링(배경 이미지 + 텍스트 추출) — 새 노트/삽입 공용
 export async function renderPdfPages(file, onPage) {
   const pdfjs = await import(PDF_JS);
@@ -624,19 +641,19 @@ export async function renderPdfPages(file, onPage) {
   const pdf = await pdfjs.getDocument({ data }).promise;
   const n = pdf.numPages;
   const canvas = document.createElement("canvas");
-  const cx = canvas.getContext("2d");
+  const cx = canvas.getContext("2d", { alpha: false });
 
   for (let i = 1; i <= n; i++) {
     const page = await pdf.getPage(i);
     const vp1 = page.getViewport({ scale: 1 });
-    const scale = 1440 / vp1.width; // 업로드 속도를 위해 1536→1440 (필기·확대에 충분)
+    const scale = 1240 / vp1.width; // 렌더·인코딩 속도를 위해 조정 (필기·확대에 충분)
     const vp = page.getViewport({ scale });
     canvas.width = Math.round(vp.width);
     canvas.height = Math.round(vp.height);
     cx.fillStyle = "#fff";
     cx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvasContext: cx, viewport: vp }).promise;
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.78);
+    const dataUrl = await canvasToJpeg(canvas, 0.72); // 비동기 인코딩(UI 안 멈춤)
 
     // 페이지 텍스트 추출 (노트 내 검색용)
     let text = "";

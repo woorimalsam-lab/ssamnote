@@ -668,17 +668,23 @@ function bindPointer() {
       E.undoStack.push(g.before); E.redoStack = [];
       trimUndo(); scheduleSave();
     } else if (g.mode === "pan") {
-      // 손가락 스와이프로 페이지 넘김 (화면에 맞춰진 상태에서만 — 확대 중엔 이동으로 동작)
-      if (g.isTouch && E.pages.length > 1 && E.view.s <= (E.fitScale || 0) * 1.05) {
-        const dx = e.clientX - g.startX;
-        const dy = e.clientY - g.startY;
-        if (Math.abs(dx) > 70 && Math.abs(dx) > 1.5 * Math.abs(dy)) {
-          if (dx < 0 && E.cur < E.pages.length - 1) { showPage(E.cur + 1, true); return; }
-          if (dx > 0 && E.cur > 0) { showPage(E.cur - 1, true); return; }
-        }
-        // 넘길 페이지가 없거나 짧은 스와이프면 제자리로
+      // 손가락 스와이프로 페이지 넘김
+      const p = curPage();
+      const vw = viewport.clientWidth, vh = viewport.clientHeight;
+      const fitsWidth = p.w * E.view.s <= vw + 40;   // 페이지 폭이 화면에 들어옴(좌우로 밀 게 없음)
+      const fitsAll = fitsWidth && p.h * E.view.s <= vh + 40;
+      const dx = e.clientX - g.startX;
+      const dy = e.clientY - g.startY;
+      const swipe = Math.abs(dx) > 55 && Math.abs(dx) > 1.4 * Math.abs(dy);
+      if (g.isTouch && E.pages.length > 1 && fitsWidth && swipe) {
+        if (dx < 0 && E.cur < E.pages.length - 1) { showPage(E.cur + 1, true); return; }
+        if (dx > 0 && E.cur > 0) { showPage(E.cur - 1, true); return; }
+        fitView(); applyView(); // 첫/마지막 페이지에서 더 넘기려 하면 제자리로
+      } else if (fitsAll) {
+        // 페이지 전체가 화면에 들어오면(밀 게 없음) 중앙으로 정렬
         fitView(); applyView();
       }
+      // 세로로 긴/확대된 페이지는 사용자가 밀어 둔 위치를 유지 (읽던 곳 보존)
     }
   };
   viewport.addEventListener("pointerup", up);
