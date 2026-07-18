@@ -664,7 +664,7 @@ function bindPointer() {
         }
         // 형광펜 자동 직선 보정 (밑줄 긋기)
         if (g.stroke.t === "hl" && E.hlStraight) straightenHl(g.stroke);
-        commit(() => curPage().strokes.push(tagStrokeWithRecording(g.stroke)));
+        commitStroke(tagStrokeWithRecording(g.stroke));
       }
       clearLive();
     } else if (g.mode === "erase") {
@@ -676,7 +676,7 @@ function bindPointer() {
     } else if (g.mode === "shape") {
       const sh = shapeFromGesture(g);
       if (Math.hypot(sh.x1 - sh.x0, sh.y1 - sh.y0) > 3) {
-        commit(() => curPage().strokes.push(tagStrokeWithRecording(sh)));
+        commitStroke(tagStrokeWithRecording(sh));
       }
       clearLive();
     } else if (g.mode === "lasso") {
@@ -1319,6 +1319,22 @@ function commit(mutate) {
   trimUndo();
   mutate();
   redrawInk();
+  scheduleSave();
+}
+
+// 새 획 하나만 즉시 덧그림 — 전체 다시 그리기(느림)를 피해 연속 필기가 끊기지 않게
+function commitStroke(stroke) {
+  E.undoStack.push(snapshot());
+  E.redoStack = [];
+  trimUndo();
+  curPage().strokes.push(stroke);
+  // 펜·도형은 항상 맨 위에 오므로 캔버스에 덧그리면 됨.
+  // 형광펜(글씨 아래로 깔림)·동기화 재생 중에는 순서가 있어 전체 다시 그림.
+  if (!E.player && (stroke.t === "pen" || stroke.t === "shape")) {
+    drawStroke(inkG, stroke);
+  } else {
+    redrawInk();
+  }
   scheduleSave();
 }
 
