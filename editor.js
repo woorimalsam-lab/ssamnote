@@ -26,6 +26,8 @@ const E = {
   fingerDraw: false,
   scribble: true,   // 긁적여서 지우기 (Scribble to Erase)
   eraseHlOnly: false, // 지우개: 형광펜만 지우기
+  penDown: false,   // 애플펜슬이 화면에 닿아 있는지 (팜 리젝션용)
+  lastPenTs: 0,     // 펜을 마지막으로 뗀 시각 — 직후 손바닥 접촉 무시
   pageFilter: "",   // 페이지 패널 검색어
   view: { s: 1, tx: 0, ty: 0 },
   undoStack: [],
@@ -493,11 +495,29 @@ function bindPointer() {
     const ta = $("text-editor-overlay");
     if (!ta.classList.contains("hidden")) { commitTextEditor(); return; }
 
-    try { viewport.setPointerCapture(e.pointerId); } catch {}
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // ---- 팜 리젝션: 펜(애플펜슬)이 닿으면 손바닥·손가락 입력은 무시 ----
+    if (e.pointerType === "pen") {
+      E.penDown = true;
+      E.lastPenTs = Date.now();
+      // 이미 잡혀 있던 손바닥/손가락 포인터와 그 제스처를 버림
+      let hadTouch = false;
+      for (const [id, p] of pointers) if (p.type === "touch") { pointers.delete(id); hadTouch = true; }
+      if (hadTouch && gesture && gesture.mode !== "draw") {
+        if (gesture.holdTimer) clearInterval(gesture.holdTimer);
+        gesture = null;
+        clearLive();
+      }
+    } else if (e.pointerType === "touch" && (E.penDown || Date.now() - E.lastPenTs < 700)) {
+      // 펜으로 쓰는 중(또는 막 뗀 직후)의 손바닥 접촉 — 완전히 무시
+      return;
+    }
 
-    // 두 번째 손가락 → 핀치로 전환 (진행 중이던 손가락 획은 취소)
-    if (pointers.size === 2) {
+    try { viewport.setPointerCapture(e.pointerId); } catch {}
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+
+    // 두 손가락 → 핀치로 전환 (펜은 절대 핀치에 참여하지 않음)
+    const touchCount = countTouchPointers();
+    if (e.pointerType === "touch" && touchCount === 2) {
       if (gesture?.holdTimer) clearInterval(gesture.holdTimer);
       if (gesture && (gesture.mode === "draw" || gesture.mode === "shape") && gesture.pointerType === "touch") {
         clearLive();
@@ -505,7 +525,7 @@ function bindPointer() {
       startPinch();
       return;
     }
-    if (pointers.size > 2) return;
+    if (e.pointerType === "touch" && touchCount > 2) return;
 
     const isTouch = e.pointerType === "touch";
     // 손가락은 기본적으로 화면 이동. 단, 선택/텍스트 도구는 손가락으로도 조작 가능
@@ -562,7 +582,7 @@ function bindPointer() {
 
   viewport.addEventListener("pointermove", (e) => {
     if (!pointers.has(e.pointerId)) return;
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType }); // type 유지(핀치 판단용)
     if (!gesture) return;
 
     if (gesture.mode === "pinch") { movePinch(); return; }
@@ -623,11 +643,12 @@ function bindPointer() {
   });
 
   const up = (e) => {
+    if (e.pointerType === "pen") { E.penDown = false; E.lastPenTs = Date.now(); }
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
 
     if (gesture?.mode === "pinch") {
-      if (pointers.size < 2) gesture = null;
+      if (countTouchPointers() < 2) gesture = null;
       return;
     }
     if (!gesture) return;
@@ -710,8 +731,19 @@ function renderLiveStroke(st) {
 }
 
 // ---------- 핀치 / 줌 ----------
+// 핀치·팜 리젝션 판단용 — 손가락(터치) 포인터만 셈
+function countTouchPointers() {
+  let n = 0;
+  for (const p of pointers.values()) if (p.type === "touch") n++;
+  return n;
+}
+function touchPointers() {
+  return [...pointers.values()].filter((p) => p.type === "touch");
+}
+
 function startPinch() {
-  const [a, b] = [...pointers.values()];
+  const [a, b] = touchPointers();
+  if (!a || !b) return;
   gesture = {
     mode: "pinch",
     d0: Math.hypot(a.x - b.x, a.y - b.y),
@@ -721,8 +753,8 @@ function startPinch() {
 }
 
 function movePinch() {
-  if (pointers.size < 2) return;
-  const [a, b] = [...pointers.values()];
+  const [a, b] = touchPointers();
+  if (!a || !b) return;
   const d = Math.hypot(a.x - b.x, a.y - b.y);
   const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
   const g = gesture;

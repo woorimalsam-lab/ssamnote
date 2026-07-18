@@ -2,7 +2,7 @@
 //  우리말쌤노트 — 서비스 워커 (오프라인 캐시)
 //  버전을 올리면 새 파일로 갱신됩니다.
 // ============================================================
-const VERSION = "v24";
+const VERSION = "v25";
 const CACHE = "ssamnote-" + VERSION;
 
 const SHELL = [
